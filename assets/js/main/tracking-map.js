@@ -33,15 +33,26 @@ document.addEventListener("DOMContentLoaded", function () {
 
     window.sendRemoteCommand = function (imei, command) {
         if (typeof socket !== 'undefined' && socket.connected) {
-            const isOff = command.includes('1#');
-            const actionText = isOff ? 'MEMATIKAN MESIN' : 'MENGHIDUPKAN MESIN';
+            let actionText = `MENJALANKAN PERINTAH [${command}]`;
+            let confirmColor = '#3085d6';
+
+            if (command.includes('RELAY,1#')) {
+                actionText = 'MEMATIKAN MESIN';
+                confirmColor = '#dc3545';
+            } else if (command.includes('RELAY,0#')) {
+                actionText = 'MENGHIDUPKAN MESIN';
+                confirmColor = '#198754';
+            } else if (command.includes('RESET#')) {
+                actionText = 'REBOOT ALAT GPS';
+                confirmColor = '#ffc107';
+            }
 
             Swal.fire({
                 title: 'Konfirmasi',
                 text: `Apakah Anda yakin ingin ${actionText}?`,
-                icon: 'warning',
+                icon: 'question',
                 showCancelButton: true,
-                confirmButtonColor: isOff ? '#dc3545' : '#198754',
+                confirmButtonColor: confirmColor,
                 cancelButtonColor: '#6c757d',
                 confirmButtonText: 'Ya, Jalankan!',
                 cancelButtonText: 'Batal'
@@ -52,28 +63,61 @@ document.addEventListener("DOMContentLoaded", function () {
                     // TAMPILKAN STATUS LOADING (MENUNGGU HARDWARE)
                     Swal.fire({
                         title: 'Memproses...',
-                        html: 'Sedang menghubungi alat GPS.<br><b>Mohon tunggu laporan balasan dari hardware (bisa 1-3 menit).</b>',
+                        html: `Sedang mengirim perintah <b>${command}</b>.<br>Mohon tunggu laporan balasan dari hardware...`,
                         allowOutsideClick: false,
                         didOpen: () => {
                             Swal.showLoading();
                         }
                     });
 
-                    // Failsafe: Jika 3 menit tidak ada kabar
+                    // Failsafe: Jika 30 detik tidak ada kabar (untuk perintah non-relay biasanya cepat)
+                    const timeoutMs = command.includes('RELAY') ? 120000 : 30000;
                     if (window.cmdTimeout) clearTimeout(window.cmdTimeout);
                     window.cmdTimeout = setTimeout(() => {
-                        if (Swal.isVisible() && Swal.getTitle().innerText === 'Memproses...') {
+                        if (Swal.isVisible() && Swal.getHtmlContainer().innerText.includes('balasan')) {
                             Swal.fire({
                                 title: 'Waktu Habis',
-                                text: 'Alat tidak memberikan laporan balik dalam 3 menit. Mungkin sedang tidak ada sinyal.',
-                                icon: 'error'
+                                text: 'Alat tidak memberikan laporan balik. Pastikan alat online dan memiliki sinyal.',
+                                icon: 'warning'
                             });
                         }
-                    }, 180000); // 3 Menit
+                    }, timeoutMs);
                 }
             });
         } else {
             Swal.fire('Error', 'Koneksi server terputus!', 'error');
+        }
+    };
+
+    window.centerMapOnVehicle = function () {
+        const ids = Object.keys(vehiclesData);
+        if (ids.length > 0) {
+            window.focusVehicleId(ids[0]);
+        } else {
+            Swal.fire('Info', 'Belum ada kendaraan di peta!', 'info');
+        }
+    };
+
+    window.showVehicleSettings = function () {
+        const ids = Object.keys(vehiclesData);
+        if (ids.length > 0) {
+            const imei = ids[0];
+            const data = vehiclesData[imei];
+
+            document.getElementById('settings-nopol').innerText = data.name;
+            document.getElementById('settings-imei').innerText = `IMEI: ${imei}`;
+            document.getElementById('settings-online').innerText = data.online ? 'ONLINE' : 'OFFLINE';
+            document.getElementById('settings-online').className = data.online ? 'fw-bold fs-6 text-info' : 'fw-bold fs-6 text-muted';
+            document.getElementById('settings-relay').innerText = data.relay === 'ON' ? 'READY (ON)' : 'CUT-OFF (OFF)';
+            document.getElementById('settings-relay').className = data.relay === 'ON' ? 'fw-bold fs-6 text-success' : 'fw-bold fs-6 text-danger';
+            document.getElementById('settings-acc').innerText = data.engine;
+            document.getElementById('settings-sat').innerText = data.sat;
+            document.getElementById('settings-address').innerText = data.address;
+
+            const modal = new bootstrap.Modal(document.getElementById('vehicleSettingsModal'));
+            modal.show();
+        } else {
+            Swal.fire('Info', 'Data kendaraan belum masuk!', 'info');
         }
     };
 
@@ -116,6 +160,16 @@ document.addEventListener("DOMContentLoaded", function () {
                 text: res.msg,
                 icon: 'success',
                 confirmButtonText: 'Selesai'
+            });
+        });
+
+        socket.on('device_response', (res) => {
+            if (window.cmdTimeout) clearTimeout(window.cmdTimeout);
+            Swal.fire({
+                title: 'Respon Hardware',
+                html: `<div class="bg-dark text-success p-3 rounded font-monospace" style="text-align:left;">${res.text}</div>`,
+                icon: 'info',
+                confirmButtonText: 'Oke'
             });
         });
 

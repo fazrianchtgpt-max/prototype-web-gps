@@ -23,6 +23,13 @@ const lastPayloads = {};
 const lastAccStatus = {};
 const lastRelayStatus = {};
 
+let globalSerial = 1;
+function getNextSerial() {
+    globalSerial = (globalSerial + 1) % 65535;
+    if (globalSerial === 0) globalSerial = 1;
+    return globalSerial;
+}
+
 function getCRC(data) {
     let crc = 0xFFFF;
     for (let i = 0; i < data.length; i++) {
@@ -95,12 +102,6 @@ const gpsServer = net.createServer((socket) => {
             const newAcc = isAccOn ? "ON" : "OFF";
             const newRelay = isRelayCut ? "OFF" : "ON";
 
-            let alarmStr = (lastPayloads[currentImei] && lastPayloads[currentImei].alarm) || "Normal";
-            if (packetId === '26') {
-                const alarmCode = hex.substring(42, 44);
-                alarmStr = alarmMap[alarmCode] || `Alarm ${alarmCode}`;
-            }
-
             if (currentImei) {
                 lastAccStatus[currentImei] = newAcc;
                 lastRelayStatus[currentImei] = newRelay;
@@ -109,7 +110,6 @@ const gpsServer = net.createServer((socket) => {
                     Object.assign(lastPayloads[currentImei], {
                         acc: newAcc,
                         relay: newRelay,
-                        alarm: alarmStr,
                         online: true,
                         time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })
                     });
@@ -136,7 +136,7 @@ const gpsServer = net.createServer((socket) => {
 
                 if (isSouth && lat > 0) lat = -lat;
                 if (isWest && lon > 0) lon = -lon;
-                if (lat > 0 && lat < 15) lat = -lat; // Indonesia Force
+                if (lat > 0 && lat < 15) lat = -lat;
 
                 const currentAcc = isAccOn ? "ON" : "OFF";
                 if (currentImei) lastAccStatus[currentImei] = currentAcc;
@@ -158,11 +158,14 @@ const gpsServer = net.createServer((socket) => {
                 if (Math.abs(payload.lat) < 90 && Math.abs(payload.lon) < 180) {
                     lastPayloads[payload.imei] = payload;
                     io.emit('vessel_move', payload);
-                    console.log(`📍 LIVE: ${payload.imei} | ${payload.lat}, ${payload.lon} | Speed: ${speed} | ACC: ${payload.acc} | Mesin: ${payload.relay}`);
                 }
-            } catch (e) {
-                console.error("Parsing Error:", e.message);
-            }
+            } catch (e) { }
+        }
+
+        // 4. COMMAND RESPONSE (15)
+        else if (packetId === '15') {
+            console.log(`[${new Date().toLocaleTimeString()}] 📥 Hardware Response: ${hex}`);
+            io.emit('hardware_msg', { imei: currentImei, raw: hex });
         }
     });
 
@@ -180,12 +183,13 @@ const gpsServer = net.createServer((socket) => {
 
 function createCommandPacket(command) {
     const cmdBuffer = Buffer.from(command, 'ascii');
+    const serialNum = getNextSerial();
     const body = Buffer.concat([
         Buffer.from([0x80]),
         Buffer.from([cmdBuffer.length + 4]),
-        Buffer.from([0x00, 0x00, 0x00, 0x00]),
+        Buffer.from([0x00, 0x00, 0x00, 0x01]), // Server Flag 1
         cmdBuffer,
-        Buffer.from([0x00, 0x01])
+        Buffer.from([(serialNum >> 8) & 0xFF, serialNum & 0xFF])
     ]);
     const length = body.length;
     const p = Buffer.concat([Buffer.from([0x78, 0x78, length]), body]);
@@ -194,27 +198,17 @@ function createCommandPacket(command) {
 }
 
 io.on('connection', (ws) => {
-    console.log(`[${new Date().toLocaleTimeString()}] 🌏 Web Connected: ${ws.id}`);
-
-    // Kirim data cache saat baru konek
     Object.values(lastPayloads).forEach(p => ws.emit('vessel_move', p));
-
     ws.on('send_command', (d) => {
-        console.log(`[${new Date().toLocaleTimeString()}] ⌨️ Web Command: imei=${d.imei}, cmd=${d.command}`);
         const s = activeGpsSockets[d.imei];
         if (s) {
             const p = createCommandPacket(d.command);
             s.write(p);
-            console.log(`🔌 Sent to Hardware: ${p.toString('hex')}`);
+            console.log(`[${new Date().toLocaleTimeString()}] 🔌 Web Command [${d.command}] to ${d.imei} (Serial: ${globalSerial})`);
             ws.emit('command_res', { status: 'success', msg: 'Sent' });
         } else {
-            console.log(`❌ Fail: imei=${d.imei} is not connected to GPS Server`);
             ws.emit('command_res', { status: 'error', msg: 'Device Offline' });
         }
-    });
-
-    ws.on('disconnect', () => {
-        console.log(`[${new Date().toLocaleTimeString()}] 🌏 Web Disconnected: ${ws.id}`);
     });
 });
 

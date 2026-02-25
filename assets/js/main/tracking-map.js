@@ -121,17 +121,17 @@ document.addEventListener("DOMContentLoaded", function () {
         });
 
         socket.on('vessel_move', (data) => {
-            console.log('Received vessel_move data:', data);
+            console.log('Update Realtime:', data);
 
-            const vehicleId = data.imei || "UNKNOWN";
+            const vehicleId = data.imei;
             const newLatLng = [data.lat, data.lon];
 
-            // Format vehicle status/color
+            // Icon logic: Bergerak (Hijau), Standby (Kuning), Mati (Merah)
             let vtStatus = data.acc === 'ON' ? (data.speed > 5 ? 'green' : 'yellow') : 'red';
             const iconUrl = `assets/icon-gps/car_${vtStatus}.svg`;
             const customIcon = createRotatedIcon(iconUrl, 0);
 
-            // Update Vehicle Data Cache
+            // Update atau Buat data cache
             if (!vehiclesData[vehicleId]) {
                 vehiclesData[vehicleId] = {
                     id: vehicleId,
@@ -144,14 +144,16 @@ document.addEventListener("DOMContentLoaded", function () {
             }
 
             const vData = vehiclesData[vehicleId];
-            vData.lat = data.lat;
-            vData.lng = data.lon;
-            vData.speed = data.speed;
-            vData.engine = data.acc;
-            vData.status = vtStatus;
-            vData.date = data.time;
-            vData.sat = data.sat;
-            vData.address = `${data.lat.toFixed(6)}, ${data.lon.toFixed(6)}`;
+            Object.assign(vData, {
+                lat: data.lat,
+                lng: data.lon,
+                speed: data.speed,
+                engine: data.acc,
+                status: vtStatus,
+                date: data.time,
+                sat: data.sat,
+                address: `${data.lat.toFixed(6)}, ${data.lon.toFixed(6)}`
+            });
 
             // Update Total Vehicle Count UI
             const vesselCountEl = document.getElementById('vessel-count');
@@ -163,14 +165,14 @@ document.addEventListener("DOMContentLoaded", function () {
             const alarmSummary = document.getElementById('alarm-summary');
             if (alarmSummary) {
                 if (data.alarm && data.alarm !== "Normal") {
-                    // Only show if there's an actual alarm
                     alarmSummary.innerHTML = `
-                        <span class="badge badge-neon-danger px-3 py-2 rounded-pill">
-                            <i class="bi bi-exclamation-triangle-fill me-1"></i> Alert: ${data.alarm}
-                        </span>
+                        <div class="alert alert-danger border-0 shadow-sm py-2 px-3 mb-2 rounded-pill d-flex align-items-center animate__animated animate__shakeX">
+                            <i class="bi bi-exclamation-octagon-fill me-2 fs-5"></i>
+                            <strong class="me-2">ALARM!</strong> ${data.alarm}
+                        </div>
                     `;
                 } else {
-                    alarmSummary.innerHTML = ""; // Hide if normal
+                    alarmSummary.innerHTML = "";
                 }
             }
 
@@ -185,7 +187,6 @@ document.addEventListener("DOMContentLoaded", function () {
                     });
                 markers[vehicleId] = marker;
 
-                // If it's the only vehicle, auto center
                 if (Object.keys(markers).length === 1) {
                     map.setView(newLatLng, 15);
                 }
@@ -208,7 +209,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (!row) {
                     row = document.createElement('tr');
                     row.id = `row-${vehicleId}`;
-                    tableBody.prepend(row); // Newest at top
+                    tableBody.prepend(row);
                 }
 
                 row.innerHTML = `
@@ -226,22 +227,22 @@ document.addEventListener("DOMContentLoaded", function () {
                     </td>
                     <td>
                         ${(data.alarm && data.alarm !== "Normal")
-                        ? `<span class="badge badge-neon-danger">${data.alarm}</span>`
-                        : `<span class="badge badge-neon-success">Normal</span>`}
+                        ? `<span class="badge bg-danger animate__animated animate__flash animate__infinite">${data.alarm}</span>`
+                        : `<span class="badge bg-success">Berjalan Normal</span>`}
                     </td>
                     <td class="fw-bold text-dark">
                         <img src="${iconUrl}" alt="Vehicle" style="width: 24px; vertical-align: middle;" class="me-2">
                         ${vData.name}
                     </td>
-                    <td>${data.time}</td>
+                    <td><small>${data.time}</small></td>
                     <td><span class="badge bg-secondary text-white">${data.speed}Km/J</span></td>
                     <td>
                         ${data.acc === 'ON'
-                        ? '<span class="badge badge-neon-success">ON</span>'
-                        : '<span class="badge badge-neon-danger">OFF</span>'}
+                        ? '<span class="badge bg-success">ON</span>'
+                        : '<span class="badge bg-danger">OFF</span>'}
                     </td>
-                    <td><span class="badge badge-neon-danger">OFF</span></td>
-                    <td><span class="badge badge-neon-warning">Normal Batt</span></td>
+                    <td><span class="badge bg-danger text-white">OFF</span></td>
+                    <td><span class="badge bg-info text-dark">Normal</span></td>
                     <td><span class="badge bg-dark rounded-circle px-2">${data.sat}</span></td>
                     <td style="max-width: 200px;" class="text-truncate" title="${vData.address}">
                         <i class="bi bi-pin-map-fill text-danger me-1"></i> ${vData.address}

@@ -158,6 +158,12 @@ const gpsServer = net.createServer((socket) => {
         }
     });
 
+    socket.on('error', (err) => {
+        if (currentImei) {
+            console.log(`[${new Date().toLocaleTimeString()}] ⚠️ Socket Error (${currentImei}): ${err.message}`);
+        }
+    });
+
     socket.on('close', () => {
         if (currentImei) {
             delete activeGpsSockets[currentImei];

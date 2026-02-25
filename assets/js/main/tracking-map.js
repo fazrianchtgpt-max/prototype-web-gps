@@ -74,12 +74,32 @@ document.addEventListener("DOMContentLoaded", function () {
     // 6. Remote Command function
     window.sendRemoteCommand = function (imei, command) {
         if (typeof socket !== 'undefined' && socket.connected) {
-            console.log(`Sending ${command} to ${imei}`);
-            socket.emit('send_command', { imei: imei, command: command });
-            // Gunakan Toast atau Mini alert agar tidak mengganggu aliran real-time
-            console.log(`Perintah ${command} dikirim ke unit ${imei}...`);
+            const isOff = command.includes('1#');
+            const actionText = isOff ? 'MEMATIKAN MESIN' : 'MENGHIDUPKAN MESIN';
+
+            Swal.fire({
+                title: 'Konfirmasi Perintah',
+                text: `Apakah Anda yakin ingin ${actionText}?`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: isOff ? '#dc3545' : '#198754',
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: 'Ya, Jalankan!',
+                cancelButtonText: 'Batal'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    socket.emit('send_command', { imei: imei, command: command });
+                    Swal.fire({
+                        title: 'Terkirim!',
+                        text: 'Perintah sedang dikirim ke unit...',
+                        icon: 'success',
+                        timer: 2000,
+                        showConfirmButton: false
+                    });
+                }
+            });
         } else {
-            alert('Koneksi server terputus!');
+            Swal.fire('Error', 'Koneksi server terputus!', 'error');
         }
     };
 
@@ -117,7 +137,16 @@ document.addEventListener("DOMContentLoaded", function () {
         });
 
         socket.on('command_res', (res) => {
-            alert(`Respon Alat: ${res.msg}`);
+            if (res.status === 'success') {
+                Swal.fire({
+                    title: 'Berhasil',
+                    text: 'Hardware telah merespon: Perintah Diterima',
+                    icon: 'success',
+                    timer: 3000
+                });
+            } else {
+                Swal.fire('Gagal', res.msg, 'error');
+            }
         });
 
         socket.on('vessel_move', (data) => {

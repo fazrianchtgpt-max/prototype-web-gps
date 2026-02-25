@@ -21,6 +21,7 @@ const WEB_PORT = 3000;
 const activeGpsSockets = {};
 const lastPayloads = {};
 const lastAccStatus = {};
+const lastRelayStatus = {}; // Baru: Menyimpan status relay mesin (ON/OFF)
 
 function getCRC(data) {
     let crc = 0xFFFF;
@@ -75,7 +76,7 @@ const gpsServer = net.createServer((socket) => {
             console.log(`[${new Date().toLocaleTimeString()}] 🟢 Login: ${currentImei}`);
         }
 
-        // 2. HEARTBEAT / ALARM (13, 26, 94)
+        // 2. HEARTBEAT / STATUS (13, 26, 94)
         else if (packetId === '13' || packetId === '26' || packetId === '94') {
             if (isStandard && (packetId === '13' || packetId === '26')) {
                 const serial = data.slice(data.length - 6, data.length - 4);
@@ -83,10 +84,16 @@ const gpsServer = net.createServer((socket) => {
             }
 
             let infoByte = (packetId === '13' || packetId === '26') ? data[4] : data[31];
+
+            // ACC (Ignition): Bit 1
             const isAccOn = (infoByte & 0x02) !== 0;
             const newAcc = isAccOn ? "ON" : "OFF";
 
-            let alarmStr = "Normal";
+            // RELAY (Engine): Bit 7 (1 = Cut/OFF, 0 = Connect/ON)
+            const isRelayCut = (infoByte & 0x80) !== 0;
+            const newRelay = isRelayCut ? "OFF" : "ON";
+
+            let alarmStr = (lastPayloads[currentImei] && lastPayloads[currentImei].alarm) || "Normal";
             if (packetId === '26') {
                 const alarmCode = hex.substring(42, 44);
                 alarmStr = alarmMap[alarmCode] || `Alarm ${alarmCode}`;
@@ -94,13 +101,18 @@ const gpsServer = net.createServer((socket) => {
 
             if (currentImei) {
                 lastAccStatus[currentImei] = newAcc;
+                lastRelayStatus[currentImei] = newRelay;
+
                 if (lastPayloads[currentImei]) {
-                    lastPayloads[currentImei].acc = newAcc;
-                    lastPayloads[currentImei].alarm = alarmStr;
-                    lastPayloads[currentImei].time = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+                    Object.assign(lastPayloads[currentImei], {
+                        acc: newAcc,
+                        relay: newRelay,
+                        alarm: alarmStr,
+                        time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })
+                    });
                     io.emit('vessel_move', lastPayloads[currentImei]);
                 }
-                console.log(`[${new Date().toLocaleTimeString()}] ⚡ REALTIME: ${currentImei} | ACC: ${newAcc} | Alarm: ${alarmStr}`);
+                console.log(`[${new Date().toLocaleTimeString()}] ⚡ REALTIME: ${currentImei} | ACC: ${newAcc} | Mesin: ${newRelay}`);
             }
         }
 
@@ -138,6 +150,7 @@ const gpsServer = net.createServer((socket) => {
                     lon: parseFloat(lon.toFixed(6)),
                     speed: speed,
                     acc: lastAccStatus[currentImei] || currentAcc,
+                    relay: lastRelayStatus[currentImei] || "ON", // Fallback ke ON
                     sat: data[10] || 10,
                     time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
                     alarm: (lastPayloads[currentImei] && lastPayloads[currentImei].alarm) || "Normal"
@@ -146,7 +159,7 @@ const gpsServer = net.createServer((socket) => {
                 if (payload.lat !== 0 && payload.lon !== 0) {
                     lastPayloads[payload.imei] = payload;
                     io.emit('vessel_move', payload);
-                    console.log(`📍 LIVE: ${payload.imei} | ${payload.lat}, ${payload.lon} | Speed: ${speed} km/h | ACC: ${payload.acc}`);
+                    console.log(`📍 LIVE: ${payload.imei} | ${payload.lat}, ${payload.lon} | Speed: ${speed} km/h | ACC: ${payload.acc} | Mesin: ${payload.relay}`);
                 }
             } catch (e) {
                 console.error("Parsing Error:", e.message);
@@ -157,41 +170,20 @@ const gpsServer = net.createServer((socket) => {
     socket.on('close', () => { if (currentImei) delete activeGpsSockets[currentImei]; });
 });
 
-/**
- * GT06N Command Packet (0x80)
- * Format: 78 78 [Length] 80 [ContentLen] [ServerFlag] [Command] [Serial] [CRC] 0D 0A
- */
 function createCommandPacket(command) {
     const cmdBuffer = Buffer.from(command, 'ascii');
-
-    // Command content length = 1 byte (ServerFlag len) + 4 bytes (ServerFlag) + N bytes (Command) + 2 bytes (Serial)
-    // Actually, usually it's [80] [Len of Command String + 4 (for flag)] [Flag] [Command] [Serial]
     const body = Buffer.concat([
-        Buffer.from([0x80]), // ID
-        Buffer.from([cmdBuffer.length + 4]), // Length of Flag + Command
-        Buffer.from([0x00, 0x00, 0x00, 0x00]), // Server Flag (must be 4 bytes)
-        cmdBuffer, // The command string
-        Buffer.from([0x00, 0x01]) // Serial Number
+        Buffer.from([0x80]),
+        Buffer.from([cmdBuffer.length + 4]),
+        Buffer.from([0x00, 0x00, 0x00, 0x00]),
+        cmdBuffer,
+        Buffer.from([0x00, 0x01])
     ]);
-
-    const packetLength = body.length; // From Protocol ID to Serial Number
-    const headerWithLen = Buffer.concat([
-        Buffer.from([0x78, 0x78]),
-        Buffer.from([packetLength])
-    ]);
-
-    const packetToCRC = Buffer.concat([
-        Buffer.from([packetLength]),
-        body
-    ]);
-
+    const length = body.length;
+    const p = Buffer.concat([Buffer.from([0x78, 0x78, length]), body]);
+    const packetToCRC = Buffer.concat([Buffer.from([length]), body]);
     const crcVal = getCRC(packetToCRC);
-
-    return Buffer.concat([
-        headerWithLen,
-        body,
-        Buffer.from([(crcVal >> 8) & 0xFF, crcVal & 0xFF, 0x0d, 0x0a])
-    ]);
+    return Buffer.concat([p, Buffer.from([(crcVal >> 8) & 0xFF, crcVal & 0xFF, 0x0d, 0x0a])]);
 }
 
 io.on('connection', (ws) => {
@@ -199,13 +191,9 @@ io.on('connection', (ws) => {
     ws.on('send_command', (d) => {
         const s = activeGpsSockets[d.imei];
         if (s) {
-            const p = createCommandPacket(d.command);
-            s.write(p);
-            console.log(`🔌 Sent Command [${d.command}] to ${d.imei} | Hex: ${p.toString('hex')}`);
-            ws.emit('command_res', { status: 'success', msg: 'Sent' });
-        } else {
-            console.log(`❌ Command Failed: ${d.imei} is offline`);
-            ws.emit('command_res', { status: 'error', msg: 'Offline' });
+            s.write(createCommandPacket(d.command));
+            console.log(`🔌 Sent [${d.command}] to ${d.imei}`);
+            ws.emit('command_res', { status: 'success', msg: 'Command Sent' });
         }
     });
 });

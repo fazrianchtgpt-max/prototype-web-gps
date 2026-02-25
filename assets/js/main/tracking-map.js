@@ -270,7 +270,11 @@ document.addEventListener("DOMContentLoaded", function () {
                         ? '<span class="badge bg-success">ON</span>'
                         : '<span class="badge bg-danger">OFF</span>'}
                     </td>
-                    <td><span class="badge bg-danger text-white">OFF</span></td>
+                    <td>
+                        ${data.relay === 'ON'
+                        ? '<span class="badge bg-success">ON</span>'
+                        : '<span class="badge bg-danger">OFF</span>'}
+                    </td>
                     <td><span class="badge bg-info text-dark">Normal</span></td>
                     <td><span class="badge bg-dark rounded-circle px-2">${data.sat}</span></td>
                     <td style="max-width: 200px;" class="text-truncate" title="${vData.address}">

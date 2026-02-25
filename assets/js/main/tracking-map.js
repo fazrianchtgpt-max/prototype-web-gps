@@ -76,7 +76,19 @@ document.addEventListener("DOMContentLoaded", function () {
     if (typeof io !== 'undefined') {
         socket = io('https://kulocloud.biz.id:8443');
 
-        socket.on('connect', () => { console.log('Connected to Server'); });
+        socket.on('connect', () => {
+            console.log('Connected to Server');
+            // Jika mobil belum muncul, refresh data dari cache
+        });
+
+        socket.on('connect_error', (err) => {
+            console.error('Connection Error:', err);
+            Swal.fire({
+                title: 'Koneksi Gagal!',
+                text: 'Web tidak bisa nyambung ke AWS lewat port 8443. Pastikan port 8443 sudah dibuka (Inbound Rule) di AWS Security Group Mas Ari.',
+                icon: 'error'
+            });
+        });
 
         socket.on('command_res', (res) => {
             if (res.status === 'success') {

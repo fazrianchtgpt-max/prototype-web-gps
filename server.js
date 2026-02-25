@@ -16,7 +16,7 @@ const io = new Server(webServer, {
 });
 
 const GPS_PORT = 5023;
-const WEB_PORT = 3000;
+const WEB_PORT = 8443; // Changed to Cloudflare supported HTTPS port
 
 const activeGpsSockets = {};
 const lastPayloads = {};

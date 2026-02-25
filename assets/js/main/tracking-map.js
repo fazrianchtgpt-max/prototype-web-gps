@@ -74,7 +74,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // Socket.io Integration
     var socket;
     if (typeof io !== 'undefined') {
-        socket = io('https://kulocloud.biz.id:2053');
+        socket = io('https://kulocloud.biz.id:8080');
 
         socket.on('connect', () => {
             console.log('Connected to Server');

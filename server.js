@@ -2,13 +2,15 @@ const net = require('net');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const path = require('path');
+const cors = require('cors'); // Tambahkan CORS
 
 const app = express();
+app.use(cors()); // Izinkan semua domain mengakses server ini
+
 const webServer = http.createServer(app);
 const io = new Server(webServer, {
     cors: {
-        origin: "*",
+        origin: "*", // Wajib agar Frontend di hosting/Vercel bisa konek ke Socket AWS ini
         methods: ["GET", "POST"]
     }
 });
@@ -18,13 +20,6 @@ const WEB_PORT = 3000;
 
 // Storage sementara untuk nyimpen koneksi GPS aktif berdasarkan IMEI
 const activeGpsSockets = {};
-
-// Setup Express: Serve Static Files (assets + html)
-app.use('/assets', express.static(path.join(__dirname, 'assets')));
-
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
-});
 
 // --- HELPER: CRC16 UNTUK GT06N ---
 function getCRC(data) {
@@ -51,9 +46,8 @@ const gpsServer = net.createServer((socket) => {
 
         // 1. LOGIN HANDLING (ID 01)
         if (hex.startsWith('7878') && hex.substring(6, 8) === '01') {
-            // Ambil IMEI (biasanya byte ke 4-11)
             currentImei = hex.substring(8, 24);
-            activeGpsSockets[currentImei] = socket; // Simpan koneksi biar bisa ditembak command
+            activeGpsSockets[currentImei] = socket;
 
             const serial = data.slice(data.length - 6, data.length - 4);
             const body = Buffer.from([0x05, 0x01, serial[0], serial[1]]);
@@ -86,14 +80,14 @@ const gpsServer = net.createServer((socket) => {
 
                 const speed = parseInt(speedHex, 16);
 
-                // Siapkan data untuk Dashboard
+                // Siapkan data untuk Dashboard (Pastikan tipe data lat/lon number)
                 const payload = {
                     imei: currentImei || "0353701096329020",
                     nopol: "B 1234 ABC",
-                    lat: parseFloat(lat.toFixed(6)),
-                    lon: parseFloat(lon.toFixed(6)),
+                    lat: parseFloat(lat.toFixed(6)), // Ubah string kembali jadi number
+                    lon: parseFloat(lon.toFixed(6)), // Ubah string kembali jadi number
                     speed: speed,
-                    acc: speed > 0 ? "ON" : "OFF", // Logic sederhana: jalan = mesin nyala
+                    acc: speed > 0 ? "ON" : "OFF",
                     sat: Math.floor(Math.random() * 5) + 8,
                     time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
                     alarm: "Normal"
@@ -102,49 +96,35 @@ const gpsServer = net.createServer((socket) => {
                 // Lempar ke Browser via Socket.io
                 io.emit('vessel_move', payload);
                 console.log(`📍 Live: ${payload.nopol} | Speed: ${speed} km/h`);
-            } catch (e) {
-                console.error("Gagal parsing koordinat:", e);
-            }
+            } catch (e) { }
         }
     });
 
     socket.on('close', () => {
-        if (currentImei) {
-            delete activeGpsSockets[currentImei];
-        }
-        console.log(`� GPS Disconnected (IMEI: ${currentImei || 'Unknown'})`);
+        if (currentImei) delete activeGpsSockets[currentImei];
+        console.log("🔴 GPS Disconnected");
     });
 
-    socket.on('error', (err) => {
-        console.log('⚠️ TCP Error:', err.message);
-    });
+    socket.on('error', () => { });
 });
 
 // --- SOCKET.IO (HUBUNGAN WEB -> SERVER) ---
 io.on('connection', (webSocket) => {
-    console.log(`🖥️ Dashboard Browser Connected: ${webSocket.id}`);
+    console.log("🖥️ Dashboard Browser Connected");
 
-    // Tangkap perintah dari tombol Engine ON/OFF di Web
     webSocket.on('send_command', (data) => {
-        const { imei, command } = data; // command bisa "RELAY,1#" (Off) atau "RELAY,0#" (On)
-        console.log(`� Mengirim perintah ${command} ke IMEI: ${imei}`);
+        const { imei, command } = data;
+        console.log(`🔌 Mengirim perintah ${command} ke IMEI: ${imei}`);
 
         const targetSocket = activeGpsSockets[imei];
         if (targetSocket) {
-            // Format perintah GT06N via GPRS harus dibungkus protocol ID 80 (Command)
-            // Untuk Prototype, kita coba kirim string langsung (beberapa device support)
-            // Jika tidak mental, harus dibungkus packet 0x80
             targetSocket.write(`DYD,${command === 'RELAY,1#' ? '1' : '0'}#`);
             webSocket.emit('command_res', { status: 'success', msg: 'Perintah terkirim!' });
         } else {
             webSocket.emit('command_res', { status: 'error', msg: 'Alat tidak terhubung!' });
         }
     });
-
-    webSocket.on('disconnect', () => {
-        console.log(`🔌 Dashboard Disconnected: ${webSocket.id}`);
-    });
 });
 
-gpsServer.listen(GPS_PORT, '0.0.0.0', () => console.log(`🚀 GPS Listener (TCP): Port ${GPS_PORT}`));
-webServer.listen(WEB_PORT, '0.0.0.0', () => console.log(`🌐 Web Dashboard: http://0.0.0.0:${WEB_PORT}`));
+gpsServer.listen(GPS_PORT, '0.0.0.0', () => console.log(`🚀 GPS Listener: ${GPS_PORT}`));
+webServer.listen(WEB_PORT, '0.0.0.0', () => console.log(`🌐 Web/Socket Server: Port ${WEB_PORT}`));

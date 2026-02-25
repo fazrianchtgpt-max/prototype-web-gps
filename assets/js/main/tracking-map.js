@@ -48,13 +48,28 @@ document.addEventListener("DOMContentLoaded", function () {
             }).then((result) => {
                 if (result.isConfirmed) {
                     socket.emit('send_command', { imei: imei, command: command });
+
+                    // TAMPILKAN STATUS LOADING (MENUNGGU HARDWARE)
                     Swal.fire({
-                        title: 'Terkirim!',
-                        text: 'Perintah sedang dikirim...',
-                        icon: 'success',
-                        timer: 2000,
-                        showConfirmButton: false
+                        title: 'Memproses...',
+                        html: 'Sedang menghubungi alat GPS.<br><b>Mohon tunggu laporan balasan dari hardware (bisa 1-3 menit).</b>',
+                        allowOutsideClick: false,
+                        didOpen: () => {
+                            Swal.showLoading();
+                        }
                     });
+
+                    // Failsafe: Jika 3 menit tidak ada kabar
+                    if (window.cmdTimeout) clearTimeout(window.cmdTimeout);
+                    window.cmdTimeout = setTimeout(() => {
+                        if (Swal.isVisible() && Swal.getTitle().innerText === 'Memproses...') {
+                            Swal.fire({
+                                title: 'Waktu Habis',
+                                text: 'Alat tidak memberikan laporan balik dalam 3 menit. Mungkin sedang tidak ada sinyal.',
+                                icon: 'error'
+                            });
+                        }
+                    }, 180000); // 3 Menit
                 }
             });
         } else {
@@ -87,10 +102,21 @@ document.addEventListener("DOMContentLoaded", function () {
 
         socket.on('command_res', (res) => {
             if (res.status === 'success') {
-                Swal.fire({ title: 'Berhasil', text: 'Perintah Diterima Hardware', icon: 'success', timer: 3000 });
+                console.log('Server Log:', res.msg);
             } else {
+                if (window.cmdTimeout) clearTimeout(window.cmdTimeout);
                 Swal.fire('Gagal', res.msg, 'error');
             }
+        });
+
+        socket.on('command_confirmed', (res) => {
+            if (window.cmdTimeout) clearTimeout(window.cmdTimeout);
+            Swal.fire({
+                title: 'SUKSES!',
+                text: res.msg,
+                icon: 'success',
+                confirmButtonText: 'Selesai'
+            });
         });
 
         socket.on('vessel_move', (data) => {

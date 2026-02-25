@@ -24,6 +24,7 @@ const activeGpsSockets = {};
 const lastPayloads = {};
 const lastAccStatus = {};
 const lastRelayStatus = {};
+const pendingRelayConfirmations = {}; // imei -> { wsId, targetStatus }
 
 let globalSerial = 1;
 function getNextSerial() {
@@ -93,7 +94,17 @@ const gpsServer = net.createServer((socket) => {
 
             if (currentImei) {
                 lastAccStatus[currentImei] = newAcc;
-                // Only override if not recently changed by web (wait for hardware confirmation eventually)
+
+                // CHECK FOR PENDING CONFIRMATIONS
+                if (pendingRelayConfirmations[currentImei] && pendingRelayConfirmations[currentImei].targetStatus === newRelay) {
+                    io.to(pendingRelayConfirmations[currentImei].wsId).emit('command_confirmed', {
+                        imei: currentImei,
+                        relay: newRelay,
+                        msg: `Mesin Berhasil Diubah Jadi ${newRelay}`
+                    });
+                    delete pendingRelayConfirmations[currentImei];
+                }
+
                 lastRelayStatus[currentImei] = newRelay;
 
                 if (lastPayloads[currentImei]) {
@@ -207,8 +218,15 @@ io.on('connection', (ws) => {
         if (s) {
             const p = createCommandPacket(d.command);
             s.write(p);
+
+            // Store pending confirmation for Relay commands
+            if (d.command.includes('RELAY')) {
+                const target = d.command.includes('1#') ? 'OFF' : 'ON';
+                pendingRelayConfirmations[d.imei] = { wsId: ws.id, targetStatus: target };
+            }
+
             console.log(`[${new Date().toLocaleTimeString()}] 🔌 Sent [${d.command}] to ${d.imei}`);
-            ws.emit('command_res', { status: 'success', msg: 'Sent' });
+            ws.emit('command_res', { status: 'success', msg: 'Perintah terkirim, menunggu respon alat...' });
         } else {
             ws.emit('command_res', { status: 'error', msg: 'Device Offline' });
         }

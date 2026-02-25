@@ -21,7 +21,7 @@ const WEB_PORT = 3000;
 const activeGpsSockets = {};
 const lastPayloads = {};
 const lastAccStatus = {};
-const lastRelayStatus = {}; // Baru: Menyimpan status relay mesin (ON/OFF)
+const lastRelayStatus = {};
 
 function getCRC(data) {
     let crc = 0xFFFF;
@@ -83,17 +83,19 @@ const gpsServer = net.createServer((socket) => {
                 socket.write(Buffer.from([0x78, 0x78, 0x05, packetId, serial[0], serial[1], 0x00, 0x00, 0x0d, 0x0a]));
             }
 
-            let infoByte = (packetId === '13' || packetId === '26') ? data[4] : data[31];
+            // Terminal Info Byte
+            let infoByte = 0;
+            if (packetId === '13' || packetId === '26') infoByte = data[4];
+            else if (packetId === '94') infoByte = data[31] || data[4];
 
-            // ACC (Ignition): Bit 1
+            // Bit 1: ACC, Bit 7: Relay (1=OFF/Cut, 0=ON/Connected)
             const isAccOn = (infoByte & 0x02) !== 0;
-            const newAcc = isAccOn ? "ON" : "OFF";
-
-            // RELAY (Engine): Bit 7 (1 = Cut/OFF, 0 = Connect/ON)
             const isRelayCut = (infoByte & 0x80) !== 0;
+
+            const newAcc = isAccOn ? "ON" : "OFF";
             const newRelay = isRelayCut ? "OFF" : "ON";
 
-            let alarmStr = (lastPayloads[currentImei] && lastPayloads[currentImei].alarm) || "Normal";
+            let alarmStr = "Normal";
             if (packetId === '26') {
                 const alarmCode = hex.substring(42, 44);
                 alarmStr = alarmMap[alarmCode] || `Alarm ${alarmCode}`;
@@ -112,7 +114,7 @@ const gpsServer = net.createServer((socket) => {
                     });
                     io.emit('vessel_move', lastPayloads[currentImei]);
                 }
-                console.log(`[${new Date().toLocaleTimeString()}] ⚡ REALTIME: ${currentImei} | ACC: ${newAcc} | Mesin: ${newRelay}`);
+                console.log(`[${new Date().toLocaleTimeString()}] ⚡ STATUS: ${currentImei} | ACC: ${newAcc} | Mesin: ${newRelay}`);
             }
         }
 
@@ -136,9 +138,12 @@ const gpsServer = net.createServer((socket) => {
                 const isWest = (courseInfo & 0x2000) !== 0;
                 const isAccOn = (courseInfo & 0x0400) !== 0;
 
+                // Indonesia always South & East for this range
                 if (isSouth && lat > 0) lat = -lat;
                 if (isWest && lon > 0) lon = -lon;
-                if (lat > 0 && lat < 10 && lon > 90) lat = -lat;
+
+                // Absolute Override for Karawang/Jakarta area if slightly off
+                if (lat > 0 && lat < 10) lat = -lat;
 
                 const currentAcc = isAccOn ? "ON" : "OFF";
                 if (currentImei) lastAccStatus[currentImei] = currentAcc;
@@ -150,7 +155,7 @@ const gpsServer = net.createServer((socket) => {
                     lon: parseFloat(lon.toFixed(6)),
                     speed: speed,
                     acc: lastAccStatus[currentImei] || currentAcc,
-                    relay: lastRelayStatus[currentImei] || "ON", // Fallback ke ON
+                    relay: lastRelayStatus[currentImei] || "ON",
                     sat: data[10] || 10,
                     time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
                     alarm: (lastPayloads[currentImei] && lastPayloads[currentImei].alarm) || "Normal"
@@ -159,7 +164,7 @@ const gpsServer = net.createServer((socket) => {
                 if (payload.lat !== 0 && payload.lon !== 0) {
                     lastPayloads[payload.imei] = payload;
                     io.emit('vessel_move', payload);
-                    console.log(`📍 LIVE: ${payload.imei} | ${payload.lat}, ${payload.lon} | Speed: ${speed} km/h | ACC: ${payload.acc} | Mesin: ${payload.relay}`);
+                    console.log(`📍 LIVE: ${payload.imei} | ${payload.lat}, ${payload.lon} | ACC: ${payload.acc} | Mesin: ${payload.relay}`);
                 }
             } catch (e) {
                 console.error("Parsing Error:", e.message);
@@ -175,14 +180,13 @@ function createCommandPacket(command) {
     const body = Buffer.concat([
         Buffer.from([0x80]),
         Buffer.from([cmdBuffer.length + 4]),
-        Buffer.from([0x00, 0x00, 0x00, 0x00]),
+        Buffer.from([0x00, 0x00, 0x00, 0x01]), // Server Flag 1
         cmdBuffer,
         Buffer.from([0x00, 0x01])
     ]);
     const length = body.length;
     const p = Buffer.concat([Buffer.from([0x78, 0x78, length]), body]);
-    const packetToCRC = Buffer.concat([Buffer.from([length]), body]);
-    const crcVal = getCRC(packetToCRC);
+    const crcVal = getCRC(Buffer.concat([Buffer.from([length]), body]));
     return Buffer.concat([p, Buffer.from([(crcVal >> 8) & 0xFF, crcVal & 0xFF, 0x0d, 0x0a])]);
 }
 
@@ -193,7 +197,7 @@ io.on('connection', (ws) => {
         if (s) {
             s.write(createCommandPacket(d.command));
             console.log(`🔌 Sent [${d.command}] to ${d.imei}`);
-            ws.emit('command_res', { status: 'success', msg: 'Command Sent' });
+            ws.emit('command_res', { status: 'success', msg: 'Sent' });
         }
     });
 });

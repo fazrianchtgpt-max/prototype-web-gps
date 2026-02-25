@@ -156,7 +156,14 @@ document.addEventListener("DOMContentLoaded", function () {
             const newLatLng = [data.lat, data.lon];
 
             // Icon logic: Bergerak (Hijau), Standby (Kuning), Mati (Merah)
-            let vtStatus = data.acc === 'ON' ? (data.speed > 5 ? 'green' : 'yellow') : 'red';
+            // Mobil jadi Kuning kalau Mesin (Relay) ON biarpun Kunci (ACC) OFF
+            let vtStatus = 'red';
+            if (data.acc === 'ON') {
+                vtStatus = data.speed > 5 ? 'green' : 'yellow';
+            } else if (data.relay === 'ON') {
+                vtStatus = 'yellow';
+            }
+
             const iconUrl = `assets/icon-gps/car_${vtStatus}.svg`;
             const customIcon = createRotatedIcon(iconUrl, 0);
 
@@ -178,6 +185,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 lng: data.lon,
                 speed: data.speed,
                 engine: data.acc,
+                relay: data.relay,
                 status: vtStatus,
                 date: data.time,
                 sat: data.sat,
@@ -288,9 +296,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // popup template with command buttons
     function generatePopupHTML(data) {
-        const engineBadge = data.engine === "ON"
-            ? '<span class="badge badge-neon-success px-2 py-1">ON</span>'
-            : '<span class="badge badge-neon-danger px-2 py-1">OFF</span>';
+        const accBadge = data.engine === "ON"
+            ? '<span class="badge bg-success px-2 py-1">ON</span>'
+            : '<span class="badge bg-danger px-2 py-1">OFF</span>';
+
+        const relayBadge = data.relay === "ON"
+            ? '<span class="badge bg-success px-2 py-1">ON</span>'
+            : '<span class="badge bg-danger px-2 py-1">OFF</span>';
 
         return `
             <div class="px-2 py-1" style="min-width: 250px;">
@@ -299,8 +311,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 </h6>
                 <table class="table table-sm table-borderless mb-0" style="font-size: 0.8rem;">
                     <tbody>
-                        <tr><td class="text-muted p-1" style="width: 85px;">IMEI</td><td class="p-1 fw-medium">: ${data.id}</td></tr>
-                        <tr><td class="text-muted p-1">Status Mesin</td><td class="p-1 fw-medium">: ${engineBadge}</td></tr>
+                        <tr><td class="text-muted p-1" style="width: 100px;">IMEI</td><td class="p-1 fw-medium">: ${data.id}</td></tr>
+                        <tr><td class="text-muted p-1">Status Kontak</td><td class="p-1 fw-medium">: ${accBadge}</td></tr>
+                        <tr><td class="text-muted p-1">Status Mesin</td><td class="p-1 fw-medium">: ${relayBadge}</td></tr>
                         <tr><td class="text-muted p-1">Kecepatan</td><td class="p-1 fw-medium">: ${data.speed} Km/Jam</td></tr>
                         <tr><td class="text-muted p-1">Posisi</td><td class="p-1 fw-medium">: ${data.lat.toFixed(6)}, ${data.lng.toFixed(6)}</td></tr>
                         <tr><td class="text-muted p-1">Waktu</td><td class="p-1 fw-medium">: ${data.date}</td></tr>

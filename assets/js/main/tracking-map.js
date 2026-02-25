@@ -235,7 +235,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     <td style="max-width: 200px;" class="text-truncate" title="${vData.address}">
                         <i class="bi bi-pin-map-fill text-danger me-1"></i> ${vData.address}
                     </td>
-                    <td><span class="text-muted fst-italic">Growigo Owner</span></td>
+                    <td><span class="text-muted fst-italic">Growigo</span></td>
                 `;
             }
         });

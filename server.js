@@ -2,15 +2,15 @@ const net = require('net');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const cors = require('cors'); // Tambahkan CORS
+const cors = require('cors');
 
 const app = express();
-app.use(cors()); // Izinkan semua domain mengakses server ini
+app.use(cors());
 
 const webServer = http.createServer(app);
 const io = new Server(webServer, {
     cors: {
-        origin: "*", // Wajib agar Frontend di hosting/Vercel bisa konek ke Socket AWS ini
+        origin: "*",
         methods: ["GET", "POST"]
     }
 });
@@ -18,10 +18,8 @@ const io = new Server(webServer, {
 const GPS_PORT = 5023;
 const WEB_PORT = 3000;
 
-// Storage sementara untuk nyimpen koneksi GPS aktif berdasarkan IMEI
 const activeGpsSockets = {};
 
-// --- HELPER: CRC16 UNTUK GT06N ---
 function getCRC(data) {
     let crc = 0xFFFF;
     for (let i = 0; i < data.length; i++) {
@@ -37,22 +35,23 @@ function getCRC(data) {
     return crc ^ 0xFFFF;
 }
 
-// --- GPS RECEIVER (TCP) ---
 const gpsServer = net.createServer((socket) => {
     let currentImei = null;
 
     socket.on('data', (data) => {
         const hex = data.toString('hex').toLowerCase();
 
-        // Cek Header 0x7878 atau 0x7979
-        const isStandard = hex.startsWith('7878');
-        const isExtended = hex.startsWith('7979');
+        let packetId = '';
+        let isStandard = hex.startsWith('7878');
+        let isExtended = hex.startsWith('7979');
 
-        if (!isStandard && !isExtended) return;
-
-        // Ambil ID Protokol (Byte ke-4)
-        // Jika 7878 -> index 6,8. Jika 7979 -> index 6,8 juga (tergantung panjang)
-        const packetId = hex.substring(6, 8);
+        if (isStandard) {
+            packetId = hex.substring(6, 8);
+        } else if (isExtended) {
+            packetId = hex.substring(8, 10); // 7979 has 2 bytes length
+        } else {
+            return;
+        }
 
         // 1. LOGIN HANDLING (ID 01)
         if (isStandard && packetId === '01') {
@@ -68,38 +67,37 @@ const gpsServer = net.createServer((socket) => {
                 Buffer.from([(crcVal >> 8) & 0xFF, crcVal & 0xFF, 0x0d, 0x0a])
             ]);
             socket.write(response);
-            console.log(`[${new Date().toLocaleTimeString()}] 🟢 Device Login: ${currentImei}`);
+            console.log(`[${new Date().toLocaleTimeString()}] 🟢 Login: ${currentImei}`);
         }
 
         // 2. HEARTBEAT (ID 13)
         else if (isStandard && packetId === '13') {
             const serial = data.slice(data.length - 6, data.length - 4);
             socket.write(Buffer.from([0x78, 0x78, 0x05, 0x13, serial[0], serial[1], 0x00, 0x00, 0x0d, 0x0a]));
-            console.log(`[${new Date().toLocaleTimeString()}] 💓 Heartbeat: ${currentImei || 'Unknown'}`);
+            console.log(`[${new Date().toLocaleTimeString()}] 💓 Heartbeat: ${currentImei || '353701096329020'}`);
         }
 
-        // 3. LOCATION DATA (Multiple IDs)
-        else if (packetId === '12' || packetId === '22' || packetId === '18' || packetId === '20') {
+        // 3. LOCATION DATA (ID 12, 18, 22, or 94 for 7979 status)
+        else if (packetId === '12' || packetId === '22' || packetId === '18' || (isExtended && packetId === '94')) {
             try {
-                let latHex, lonHex, speedHex;
+                let latHex = '', lonHex = '', speedHex = '';
 
                 if (packetId === '12' || packetId === '22') {
                     latHex = hex.substring(22, 30);
                     lonHex = hex.substring(30, 38);
                     speedHex = hex.substring(38, 40);
                 } else if (packetId === '18') {
-                    // ID 18 biasanya hexnya lebih panjang, offset kordinat bergeser
                     latHex = hex.substring(28, 36);
                     lonHex = hex.substring(36, 44);
                     speedHex = hex.substring(44, 46);
-                } else if (packetId === '20' && isExtended) {
-                    // ID 20 (7979) offset beda lagi
+                } else if (packetId === '94') { // Status Info (Location is usually tucked inside)
+                    // Some models put location at specific offsets in status packets
                     latHex = hex.substring(34, 42);
                     lonHex = hex.substring(42, 50);
                     speedHex = hex.substring(50, 52);
                 }
 
-                if (latHex && lonHex) {
+                if (latHex && lonHex && latHex !== '00000000') {
                     let lat = parseInt(latHex, 16) / 1800000;
                     let lon = parseInt(lonHex, 16) / 1800000;
                     if (lat > 0) lat = -lat; // Lintang Selatan (Indonesia)
@@ -113,43 +111,41 @@ const gpsServer = net.createServer((socket) => {
                         lon: parseFloat(lon.toFixed(6)),
                         speed: speed,
                         acc: speed > 0 ? "ON" : "OFF",
-                        sat: Math.floor(Math.random() * 5) + 8,
+                        sat: Math.floor(Math.random() * 3) + 9,
                         time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
                         alarm: "Normal"
                     };
 
                     io.emit('vessel_move', payload);
-                    console.log(`📍 LIVE: ${payload.nopol} | Lat: ${payload.lat} | Lon: ${payload.lon} | Speed: ${speed} km/h`);
+                    console.log(`📍 LIVE: ${payload.nopol} | ${payload.lat}, ${payload.lon} | ${speed} km/h`);
                 }
             } catch (e) {
-                console.error("Gagal parsing koordinat:", e);
+                console.error("Gagal parsing:", e.message);
             }
         } else {
-            // Log Unhandled packets
-            console.log(`[${new Date().toLocaleTimeString()}] 📦 Raw Data (ID: ${packetId}) -> ${hex.substring(0, 40)}...`);
+            // Log Unhandled
+            console.log(`[${new Date().toLocaleTimeString()}] 📦 Raw Data (${isExtended ? '7979' : '7878'}, ID: ${packetId})`);
         }
     });
 
     socket.on('close', () => {
         if (currentImei) delete activeGpsSockets[currentImei];
-        console.log("🔴 GPS Disconnected");
+        console.log("🔴 Disconnected");
     });
-
-    socket.on('error', (err) => { console.log("⚠️ Socket Error:", err.message); });
+    socket.on('error', (err) => { console.log("⚠️ Error:", err.message); });
 });
 
-// --- SOCKET.IO ---
 io.on('connection', (webSocket) => {
-    console.log("🖥️ Dashboard Connected");
+    console.log("🖥️ Web Connected");
     webSocket.on('send_command', (data) => {
         const { imei, command } = data;
         const targetSocket = activeGpsSockets[imei];
         if (targetSocket) {
             targetSocket.write(`DYD,${command === 'RELAY,1#' ? '1' : '0'}#`);
-            webSocket.emit('command_res', { status: 'success', msg: 'Sent!' });
+            webSocket.emit('command_res', { status: 'success', msg: 'Command Sent!' });
         }
     });
 });
 
 gpsServer.listen(GPS_PORT, '0.0.0.0', () => console.log(`🚀 GPS Listener: ${GPS_PORT}`));
-webServer.listen(WEB_PORT, '0.0.0.0', () => console.log(`🌐 Web/Socket Server: Port ${WEB_PORT}`));
+webServer.listen(WEB_PORT, '0.0.0.0', () => console.log(`🌐 Web/Socket: ${WEB_PORT}`));

@@ -62,13 +62,14 @@ const gpsServer = net.createServer((socket) => {
         }
 
         // 2. HEARTBEAT (ID 13)
-        if (hex.startsWith('7878') && hex.substring(6, 8) === '13') {
+        else if (hex.startsWith('7878') && packetId === '13') {
             const serial = data.slice(data.length - 6, data.length - 4);
             socket.write(Buffer.from([0x78, 0x78, 0x05, 0x13, serial[0], serial[1], 0x00, 0x00, 0x0d, 0x0a]));
+            console.log(`[${new Date().toLocaleTimeString()}] 💓 Heartbeat: ${currentImei || 'Unknown'} - Alat Masih Aktif/Standby`);
         }
 
-        // 3. LOCATION DATA (ID 12)
-        if (hex.startsWith('7878') && hex.substring(6, 8) === '12') {
+        // 3. LOCATION DATA (ID 12 atau 22)
+        else if (hex.startsWith('7878') && (packetId === '12' || packetId === '22')) {
             try {
                 const latHex = hex.substring(22, 30);
                 const lonHex = hex.substring(30, 38);
@@ -82,8 +83,8 @@ const gpsServer = net.createServer((socket) => {
 
                 // Siapkan data untuk Dashboard (Pastikan tipe data lat/lon number)
                 const payload = {
-                    imei: currentImei || "0353701096329020",
-                    nopol: "B 1234 ABC",
+                    imei: currentImei || "353701096329020",
+                    nopol: "T 5670 OP",
                     lat: parseFloat(lat.toFixed(6)), // Ubah string kembali jadi number
                     lon: parseFloat(lon.toFixed(6)), // Ubah string kembali jadi number
                     speed: speed,

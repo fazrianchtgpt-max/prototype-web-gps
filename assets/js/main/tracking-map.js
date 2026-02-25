@@ -83,11 +83,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
         socket.on('connect_error', (err) => {
             console.error('Connection Error:', err);
-            Swal.fire({
-                title: 'Gangguan Koneksi!',
-                text: 'Web tidak bisa terhubung ke server AWS. Silahkan pastikan Port 8443 sudah dibuka di Security Group AWS dan domain sudah diarahkan dengan benar.',
-                icon: 'error'
-            });
         });
 
         socket.on('command_res', (res) => {

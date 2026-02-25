@@ -37,7 +37,6 @@ function getCRC(data) {
     return crc ^ 0xFFFF;
 }
 
-// Map Alarm Type Code to String
 const alarmMap = {
     '00': 'Normal',
     '01': '🚨 SOS ALARM!',
@@ -47,10 +46,6 @@ const alarmMap = {
     '05': '📤 Exit Fence',
     '06': '🏎️ Over Speed',
     '09': '🔋 Moving Alarm',
-    '10': '🔌 Enter GPS Blind Area',
-    '11': '📶 Exit GPS Blind Area',
-    '12': '🔔 Power On Alarm',
-    '13': '📡 GPS First Fix',
     '14': '📉 Low Battery',
     '18': '🔌 Power Cut Alarm'
 };
@@ -60,16 +55,13 @@ const gpsServer = net.createServer((socket) => {
 
     socket.on('data', (data) => {
         const hex = data.toString('hex').toLowerCase();
-
-        let packetId = '';
         let isStandard = hex.startsWith('7878');
         let isExtended = hex.startsWith('7979');
-
         if (!isStandard && !isExtended) return;
 
-        packetId = isStandard ? hex.substring(6, 8) : hex.substring(8, 10);
+        const packetId = isStandard ? hex.substring(6, 8) : hex.substring(8, 10);
 
-        // 1. LOGIN (ID 01)
+        // 1. LOGIN (01)
         if (isStandard && packetId === '01') {
             const rawImei = hex.substring(8, 24);
             currentImei = rawImei.startsWith('0') ? rawImei.substring(1) : rawImei;
@@ -78,137 +70,121 @@ const gpsServer = net.createServer((socket) => {
             const serial = data.slice(data.length - 6, data.length - 4);
             const body = Buffer.from([0x05, 0x01, serial[0], serial[1]]);
             const crcVal = getCRC(body);
-            const response = Buffer.concat([
-                Buffer.from([0x78, 0x78]),
-                body,
-                Buffer.from([(crcVal >> 8) & 0xFF, crcVal & 0xFF, 0x0d, 0x0a])
-            ]);
-            socket.write(response);
-            console.log(`[${new Date().toLocaleTimeString()}] 🟢 Login Device: ${currentImei}`);
+            const resp = Buffer.concat([Buffer.from([0x78, 0x78]), body, Buffer.from([(crcVal >> 8) & 0xFF, crcVal & 0xFF, 0x0d, 0x0a])]);
+            socket.write(resp);
+            console.log(`[${new Date().toLocaleTimeString()}] 🟢 Login: ${currentImei}`);
         }
 
-        // 2. HEARTBEAT / ALARM / STATUS (ID 13, 26, 94)
+        // 2. HEARTBEAT / ALARM (13, 26, 94)
         else if (packetId === '13' || packetId === '26' || packetId === '94') {
-            // ACK for standard packets
             if (isStandard && (packetId === '13' || packetId === '26')) {
                 const serial = data.slice(data.length - 6, data.length - 4);
                 socket.write(Buffer.from([0x78, 0x78, 0x05, packetId, serial[0], serial[1], 0x00, 0x00, 0x0d, 0x0a]));
             }
 
-            let infoByte = 0;
-            let alarmStr = "Normal";
-
-            if (packetId === '13' || packetId === '26') infoByte = data[4];
-            else if (packetId === '94') infoByte = data[31] || data[4];
-
-            if (packetId === '26') {
-                const alarmType = hex.substring(42, 44);
-                alarmStr = alarmMap[alarmType] || `Alarm Code ${alarmType}`;
-            }
-
-            // ACC logic (Bit 1 in Terminal Info)
+            let infoByte = (packetId === '13' || packetId === '26') ? data[4] : data[31];
+            // GT06N: Bit 1 (weight 2) is ACC
             const isAccOn = (infoByte & 0x02) !== 0;
             const newAcc = isAccOn ? "ON" : "OFF";
+
+            let alarmStr = "Normal";
+            if (packetId === '26') {
+                const alarmCode = hex.substring(42, 44);
+                alarmStr = alarmMap[alarmCode] || `Alarm ${alarmCode}`;
+            }
 
             if (currentImei) {
                 lastAccStatus[currentImei] = newAcc;
                 if (lastPayloads[currentImei]) {
                     lastPayloads[currentImei].acc = newAcc;
                     lastPayloads[currentImei].alarm = alarmStr;
+                    lastPayloads[currentImei].time = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
                     io.emit('vessel_move', lastPayloads[currentImei]);
                 }
-                console.log(`[${new Date().toLocaleTimeString()}] 💓 Status Update: [${currentImei}] Mesin ${newAcc} | Alarm: ${alarmStr}`);
+                console.log(`[${new Date().toLocaleTimeString()}] ⚡ REALTIME: ${currentImei} | ACC: ${newAcc} | Alarm: ${alarmStr}`);
             }
         }
 
-        // 3. LOCATION (ID 12, 18, 22)
+        // 3. LOCATION (12, 18, 22)
         else if (packetId === '12' || packetId === '22' || packetId === '18') {
             try {
-                let latHex = '', lonHex = '', speedHex = '', courseStatus = '';
+                let latOffset = (packetId === '18') ? 14 : 11;
+                let lonOffset = (packetId === '18') ? 18 : 15;
+                let speedOffset = (packetId === '18') ? 22 : 19;
+                let courseOffset = (packetId === '18') ? 23 : 20;
 
-                if (packetId === '12' || packetId === '22') {
-                    latHex = hex.substring(22, 30);
-                    lonHex = hex.substring(30, 38);
-                    speedHex = hex.substring(38, 40);
-                    courseStatus = hex.substring(40, 44);
-                } else if (packetId === '18') {
-                    latHex = hex.substring(28, 36);
-                    lonHex = hex.substring(36, 44);
-                    speedHex = hex.substring(44, 46);
-                    courseStatus = hex.substring(46, 50);
-                }
+                const latRaw = data.readUInt32BE(latOffset);
+                const lonRaw = data.readUInt32BE(lonOffset);
+                const speed = data[speedOffset];
+                const courseInfo = data.readUInt16BE(courseOffset);
 
-                if (latHex && lonHex && latHex !== '00000000') {
-                    let rawLat = parseInt(latHex, 16);
-                    let rawLon = parseInt(lonHex, 16);
+                // GT06 Factor: 1/1,800,000
+                let lat = latRaw / 1800000;
+                let lon = lonRaw / 1800000;
 
-                    // Decode Lat/Lon correctly
-                    let lat = rawLat / 1800000;
-                    let lon = rawLon / 1800000;
+                // Bitmask for Indonesia (South Latitude, East Longitude)
+                // Bit 12 (0x1000) of CourseInfo: 1 = South, 0 = North
+                // Bit 13 (0x2000) of CourseInfo: 1 = West, 0 = East
+                const isSouth = (courseInfo & 0x1000) !== 0;
+                const isWest = (courseInfo & 0x2000) !== 0;
+                const isAccOn = (courseInfo & 0x0400) !== 0;
 
-                    // Check Course/Status for Orientation
-                    const cs = parseInt(courseStatus, 16);
-                    const isNorth = (cs & 0x1000) !== 0;
-                    const isEast = (cs & 0x2000) === 0;
-                    const isAccOn = (cs & 0x0400) !== 0;
+                if (isSouth && lat > 0) lat = -lat;
+                else if (!isSouth && lat > 0) { /* North, stay positive */ }
 
-                    if (!isNorth && lat > 0) lat = -lat;
-                    if (!isEast && lon > 0) lon = -lon;
+                if (isWest && lon > 0) lon = -lon;
 
-                    const speed = parseInt(speedHex, 16);
-                    const currentAcc = isAccOn ? "ON" : "OFF";
-                    if (currentImei) lastAccStatus[currentImei] = currentAcc;
+                // FORCE INDONESIA FALLBACK (If Lat > 0 but it's likely Indo, force South)
+                if (lat > 0 && lat < 10 && lon > 90) lat = -lat;
 
-                    const payload = {
-                        imei: currentImei || "353701096329020",
-                        nopol: "T FAZRIAN ABC",
-                        lat: parseFloat(lat.toFixed(6)),
-                        lon: parseFloat(lon.toFixed(6)),
-                        speed: speed,
-                        acc: currentAcc,
-                        sat: parseInt(hex.substring(20, 22), 16) || 12,
-                        time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
-                        alarm: (lastPayloads[currentImei] && lastPayloads[currentImei].alarm) || "Normal"
-                    };
+                const currentAcc = isAccOn ? "ON" : "OFF";
+                if (currentImei) lastAccStatus[currentImei] = currentAcc;
 
+                const payload = {
+                    imei: currentImei || "353701096329020",
+                    nopol: "T FAZRIAN ABC",
+                    lat: parseFloat(lat.toFixed(6)),
+                    lon: parseFloat(lon.toFixed(6)),
+                    speed: speed,
+                    acc: lastAccStatus[currentImei] || currentAcc,
+                    sat: data[10] || 10,
+                    time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
+                    alarm: (lastPayloads[currentImei] && lastPayloads[currentImei].alarm) || "Normal"
+                };
+
+                if (payload.lat !== 0 && payload.lon !== 0) {
                     lastPayloads[payload.imei] = payload;
                     io.emit('vessel_move', payload);
-                    console.log(`📍 LIVE: ${payload.nopol} | ${payload.lat}, ${payload.lon} | Speed: ${speed} km/h | Acc: ${payload.acc}`);
+                    console.log(`📍 LIVE: ${payload.imei} | ${payload.lat}, ${payload.lon} | Speed: ${speed} km/h | ACC: ${payload.acc}`);
                 }
             } catch (e) {
-                console.error("Gagal parsing koord:", e.message);
+                console.error("Parsing Error:", e.message);
             }
         }
     });
 
-    socket.on('close', () => {
-        if (currentImei) delete activeGpsSockets[currentImei];
-        console.log(`🔴 Device Disconnected: ${currentImei}`);
-    });
+    socket.on('close', () => { if (currentImei) delete activeGpsSockets[currentImei]; });
 });
 
 function createCommandPacket(command) {
     const cmdBuffer = Buffer.from(command, 'ascii');
     const body = Buffer.concat([Buffer.from([0x80, cmdBuffer.length]), cmdBuffer, Buffer.from([0x00, 0x01])]);
     const length = body.length + 2;
-    const packetBeforeCrc = Buffer.concat([Buffer.from([length]), body]);
-    const crcVal = getCRC(packetBeforeCrc);
-    return Buffer.concat([Buffer.from([0x78, 0x78]), packetBeforeCrc, Buffer.from([(crcVal >> 8) & 0xFF, crcVal & 0xFF, 0x0d, 0x0a])]);
+    const p = Buffer.concat([Buffer.from([length]), body]);
+    const crc = getCRC(p);
+    return Buffer.concat([Buffer.from([0x78, 0x78]), p, Buffer.from([(crc >> 8) & 0xFF, crc & 0xFF, 0x0d, 0x0a])]);
 }
 
-io.on('connection', (webSocket) => {
-    Object.values(lastPayloads).forEach(p => webSocket.emit('vessel_move', p));
-    webSocket.on('send_command', (data) => {
-        const { imei, command } = data;
-        const target = activeGpsSockets[imei];
-        if (target) {
-            target.write(createCommandPacket(command));
-            webSocket.emit('command_res', { status: 'success', msg: `Command ${command} Sent!` });
-        } else {
-            webSocket.emit('command_res', { status: 'error', msg: 'Device Offline' });
+io.on('connection', (ws) => {
+    Object.values(lastPayloads).forEach(p => ws.emit('vessel_move', p));
+    ws.on('send_command', (d) => {
+        const s = activeGpsSockets[d.imei];
+        if (s) {
+            s.write(createCommandPacket(d.command));
+            ws.emit('command_res', { status: 'success', msg: 'Sent' });
         }
     });
 });
 
-gpsServer.listen(GPS_PORT, '0.0.0.0', () => console.log(`🚀 GPS Listener: ${GPS_PORT}`));
-webServer.listen(WEB_PORT, '0.0.0.0', () => console.log(`🌐 Web/Socket: ${WEB_PORT}`));
+gpsServer.listen(GPS_PORT, '0.0.0.0', () => console.log(`🚀 GPS: ${GPS_PORT}`));
+webServer.listen(WEB_PORT, '0.0.0.0', () => console.log(`🌐 WEB: ${WEB_PORT}`));

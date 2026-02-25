@@ -190,7 +190,7 @@ const gpsServer = net.createServer((socket) => {
 function createCommandPacket(command) {
     const cmdBuffer = Buffer.from(command, 'ascii');
     const serialNum = getNextSerial();
-    const infoHeader = Buffer.from([0x00, 0x00]); // Short Server Flag for stability
+    const infoHeader = Buffer.from([0x00, 0x00, 0x00, 0x00]); // Standard 4-byte Server Flag for GT06N
 
     const protocol = 0x80;
     const contentLen = infoHeader.length + cmdBuffer.length;

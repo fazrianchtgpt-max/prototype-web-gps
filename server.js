@@ -43,9 +43,10 @@ const gpsServer = net.createServer((socket) => {
 
     socket.on('data', (data) => {
         const hex = data.toString('hex').toLowerCase();
+        const packetId = hex.substring(6, 8); // Ambil ID protokol
 
         // 1. LOGIN HANDLING (ID 01)
-        if (hex.startsWith('7878') && hex.substring(6, 8) === '01') {
+        if (hex.startsWith('7878') && packetId === '01') {
             currentImei = hex.substring(8, 24);
             activeGpsSockets[currentImei] = socket;
 
@@ -97,7 +98,12 @@ const gpsServer = net.createServer((socket) => {
                 // Lempar ke Browser via Socket.io
                 io.emit('vessel_move', payload);
                 console.log(`📍 Live: ${payload.nopol} | Speed: ${speed} km/h`);
-            } catch (e) { }
+            } catch (e) {
+                console.error("Gagal parsing koordinat:", e);
+            }
+        } else {
+            // Log Unhandled packets (Berguna untuk melihat apakah alat ngirim data lain)
+            console.log(`[${new Date().toLocaleTimeString()}] 📦 Raw Data Masuk (ID: ${packetId}) -> ${hex}`);
         }
     });
 

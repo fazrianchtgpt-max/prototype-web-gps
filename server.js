@@ -19,6 +19,7 @@ const GPS_PORT = 5023;
 const WEB_PORT = 3000;
 
 const activeGpsSockets = {};
+const lastPayloads = {}; // Simpan posisi terakhir agar tidak hilang saat browser di-refresh
 
 function getCRC(data) {
     let crc = 0xFFFF;
@@ -116,6 +117,9 @@ const gpsServer = net.createServer((socket) => {
                         alarm: "Normal"
                     };
 
+                    // Simpan ke cache agar data tidak hilang saat refresh
+                    lastPayloads[payload.imei] = payload;
+
                     io.emit('vessel_move', payload);
                     console.log(`📍 LIVE: ${payload.nopol} | ${payload.lat}, ${payload.lon} | ${speed} km/h`);
                 }
@@ -137,6 +141,12 @@ const gpsServer = net.createServer((socket) => {
 
 io.on('connection', (webSocket) => {
     console.log("🖥️ Web Connected");
+
+    // Kirim data terakhir ke browser yang baru saja dibuka/refresh
+    Object.values(lastPayloads).forEach(payload => {
+        webSocket.emit('vessel_move', payload);
+    });
+
     webSocket.on('send_command', (data) => {
         const { imei, command } = data;
         const targetSocket = activeGpsSockets[imei];

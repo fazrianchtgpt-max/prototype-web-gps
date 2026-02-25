@@ -18,7 +18,7 @@ const io = new Server(webServer, {
 });
 
 const GPS_PORT = 5023;
-const WEB_PORT = 8080; // Cloudflare-compatible HTTP port for Flexible SSL
+const WEB_PORT = 80; // Standard HTTP port for Cloudflare Flexible SSL proxy
 
 const activeGpsSockets = {};
 const lastPayloads = {};

@@ -74,7 +74,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // Socket.io Integration
     var socket;
     if (typeof io !== 'undefined') {
-        socket = io('https://kulocloud.biz.id:8080'); // Port 8080 for Cloudflare Flexible SSL
+        socket = io('https://kulocloud.biz.id'); // Use standard HTTPS (Cloudflare will proxy to port 80) // Port 8080 for Cloudflare Flexible SSL
 
         socket.on('connect', () => {
             console.log('Connected to Server');

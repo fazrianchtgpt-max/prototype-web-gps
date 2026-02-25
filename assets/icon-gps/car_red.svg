@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 128" width="64" height="128">
+  <g transform="translate(32, 64) rotate(0) translate(-32, -64)">
+    <!-- Body -->
+    <rect x="8" y="10" width="48" height="108" rx="14" fill="#EF4444"/>
+    <!-- Roof -->
+    <rect x="14" y="44" width="36" height="40" rx="8" fill="rgba(0,0,0,0.15)"/>
+    <!-- Windshield -->
+    <path d="M 14 42 Q 32 28 50 42 L 46 48 L 18 48 Z" fill="#1A202C"/>
+    <!-- Rear window -->
+    <path d="M 16 86 L 48 86 Q 32 96 16 86 Z" fill="#1A202C"/>
+    <!-- Mirrors -->
+    <rect x="4" y="44" width="6" height="10" rx="2" fill="#EF4444"/>
+    <rect x="54" y="44" width="6" height="10" rx="2" fill="#EF4444"/>
+    <!-- Headlights -->
+    <rect x="12" y="8" width="12" height="4" rx="2" fill="#FEF08A"/>
+    <rect x="40" y="8" width="12" height="4" rx="2" fill="#FEF08A"/>
+    <!-- Taillights -->
+    <rect x="12" y="116" width="14" height="4" rx="2" fill="#FCA5A5"/>
+    <rect x="38" y="116" width="14" height="4" rx="2" fill="#FCA5A5"/>
+  </g>
+</svg>

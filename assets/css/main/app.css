@@ -1,0 +1,238 @@
+/* 
+ * Main Application Styles
+ * Contains: Variables, Reset, Typography, Component Defaults
+ */
+
+/* Fonts */
+@import url('../../fonts/stylesheet.css');
+
+:root {
+    /* 🎨 Core Brand Colors - GrowigoDash */
+    --gd-navy: #0E1F4D;
+    /* Deep Navy - Sidebar, navbar */
+    --gd-blue: #1E3A8A;
+    /* Royal Blue - Active menu, highlights */
+    --gd-cyan: #1FB6C9;
+    /* Teal Cyan - Primary Actions (CTA) */
+    --gd-cyan-soft: #5ED4E6;
+    /* Soft Cyan - Hover, highlights */
+
+    /* ⚪ Neutral & Surface */
+    --gd-bg: #F5F7FA;
+    /* Main Dashboard Background */
+    --gd-card: #FFFFFF;
+    /* Content Card */
+    --gd-border: #E5E9F0;
+    /* Borders */
+    --gd-border-strong: #D1D5DB;
+    /* Stronger border for cards */
+
+    /* ✍️ Typography Colors */
+    --gd-heading: #0F172A;
+    /* Headings */
+    --gd-text: #475569;
+    /* Body Text */
+    --gd-muted: #94A3B8;
+    /* Helper Text */
+
+    /* 🚦 Status Colors */
+    --color-error: #EF4444;
+    --color-success: #22C55E;
+    --color-warning: #F59E0B;
+    --color-info: #38BDF8;
+
+    /* Spacing & Layout */
+    --card-radius: 16px;
+    --input-radius: 10px;
+    --btn-radius: 10px;
+    --transition-speed: 0.25s;
+
+    /* Typography */
+    --font-main: 'Inter', sans-serif;
+}
+
+/* Base */
+body {
+    font-family: var(--font-main);
+    background-color: var(--gd-bg);
+    color: var(--gd-text);
+    min-height: 100vh;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+    /* Prevent horizontal scroll from sidebar off-canvas */
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    color: var(--gd-heading);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+a {
+    text-decoration: none;
+    color: var(--gd-cyan);
+    transition: color var(--transition-speed) ease;
+}
+
+a:hover {
+    color: var(--gd-navy);
+}
+
+/* Buttons (Global) */
+.btn-primary {
+    background-color: var(--gd-cyan);
+    border-color: var(--gd-cyan);
+    color: #fff;
+    font-weight: 600;
+    /* Let Bootstrap handle padding and font-size based on .btn-sm, .btn, .btn-lg */
+    border-radius: var(--btn-radius);
+    box-shadow: 0 4px 6px rgba(31, 182, 201, 0.2), 0 2px 4px rgba(31, 182, 201, 0.1);
+    transition: all var(--transition-speed) ease;
+}
+
+.btn-primary:hover,
+.btn-primary:focus {
+    background-color: #1799a8;
+    border-color: #1799a8;
+    color: #fff;
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(31, 182, 201, 0.3), 0 4px 6px -2px rgba(31, 182, 201, 0.1);
+}
+
+.btn-primary:active {
+    background-color: var(--gd-blue);
+    border-color: var(--gd-blue);
+    transform: translateY(0);
+}
+
+/* Google Button */
+.btn-google {
+    background-color: #fff;
+    border: 1px solid var(--gd-border);
+    color: var(--gd-heading);
+    font-weight: 600;
+    /* Let Bootstrap handle padding */
+    border-radius: var(--btn-radius);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    transition: all var(--transition-speed) ease;
+}
+
+.btn-google:hover {
+    background-color: #f8f9fa;
+    border-color: var(--gd-border-strong);
+    color: var(--gd-heading);
+}
+
+/* Forms (Global) */
+.form-label {
+    font-weight: 600;
+    color: var(--gd-heading);
+    font-size: 0.95rem;
+    margin-bottom: 0.5rem;
+}
+
+.form-control {
+    /* Let Bootstrap handle padding and font-size based on .form-control-sm, .form-control, .form-control-lg */
+    border: 1px solid var(--gd-border);
+    border-radius: var(--input-radius);
+    color: var(--gd-heading);
+    background-color: #fff;
+    transition: all var(--transition-speed) ease;
+}
+
+.form-control:focus {
+    border-color: var(--gd-cyan);
+    box-shadow: 0 0 0 4px rgba(31, 182, 201, 0.15);
+    outline: none;
+}
+
+.form-control::placeholder {
+    color: var(--gd-muted);
+    font-weight: 400;
+}
+
+.input-group-text {
+    background: #F8FAFC;
+    border-color: var(--gd-border);
+    color: var(--gd-cyan);
+}
+
+/* Utilities */
+.shadow-soft {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+}
+
+.text-navy {
+    color: var(--gd-navy) !important;
+}
+
+.bg-navy {
+    background-color: var(--gd-navy) !important;
+}
+
+/* Divider */
+.auth-divider {
+    display: flex;
+    align-items: center;
+    text-align: center;
+    margin: 1.5rem 0;
+    color: var(--gd-muted);
+    font-size: 0.9rem;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+    content: '';
+    flex: 1;
+    border-bottom: 1px solid var(--gd-border);
+}
+
+.auth-divider::before {
+    margin-right: .5em;
+}
+
+.auth-divider::after {
+    margin-left: .5em;
+}
+
+/* ========================================
+   BUTTON & INPUT SIZING SYSTEM
+   ======================================== */
+
+/* Let Bootstrap handle all button sizes naturally */
+/* Bootstrap provides: .btn-sm, .btn (default), .btn-lg */
+/* No custom overrides needed */
+
+/* Let Bootstrap handle all form-control sizes naturally */
+/* Bootstrap provides: .form-control-sm, .form-control (default), .form-control-lg */
+/* Only adding .form-control-xl as an extra size option */
+
+/* Extra Large Input Size (Custom Addition) */
+input.form-control-xl,
+select.form-select-xl,
+.form-control.form-control-xl,
+.form-select.form-select-xl {
+    padding: 1.125rem 1.5rem !important;
+    font-size: 1.188rem !important;
+    line-height: 1.7 !important;
+    border-radius: 0.625rem !important;
+    min-height: 62px !important;
+    height: 62px !important;
+}
+
+/* Textarea Extra Large */
+textarea.form-control-xl {
+    min-height: 140px !important;
+    height: auto !important;
+}
+
+/* Let Bootstrap handle input-group-text and button-group sizing */

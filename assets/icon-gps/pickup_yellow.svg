@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 140" width="64" height="140">
+  <g transform="translate(32, 70) rotate(0) translate(-32, -70)">
+    <!-- Body -->
+    <rect x="8" y="10" width="48" height="120" rx="8" fill="#F59E0B"/>
+    <!-- Cab Roof -->
+    <rect x="12" y="35" width="40" height="38" rx="6" fill="rgba(0,0,0,0.15)"/>
+    <!-- Windshield -->
+    <path d="M 12 35 Q 32 20 52 35 L 48 42 L 16 42 Z" fill="#1A202C"/>
+    <!-- Rear Window -->
+    <rect x="14" y="70" width="36" height="6" fill="#1A202C"/>
+    <!-- Bed -->
+    <rect x="12" y="78" width="40" height="48" rx="4" fill="#0F172A"/>
+    <rect x="14" y="80" width="36" height="44" rx="2" fill="#334155"/>
+    <line x1="14" y1="88" x2="50" y2="88" stroke="#1E293B" stroke-width="2"/>
+    <line x1="14" y1="98" x2="50" y2="98" stroke="#1E293B" stroke-width="2"/>
+    <line x1="14" y1="108" x2="50" y2="108" stroke="#1E293B" stroke-width="2"/>
+    <line x1="14" y1="118" x2="50" y2="118" stroke="#1E293B" stroke-width="2"/>
+    <!-- Mirrors -->
+    <rect x="4" y="38" width="6" height="10" rx="2" fill="#F59E0B"/>
+    <rect x="54" y="38" width="6" height="10" rx="2" fill="#F59E0B"/>
+    <!-- Headlights & Taillights -->
+    <rect x="12" y="8" width="10" height="4" rx="2" fill="#FEF08A"/>
+    <rect x="42" y="8" width="10" height="4" rx="2" fill="#FEF08A"/>
+    <rect x="12" y="128" width="12" height="4" rx="2" fill="#FCA5A5"/>
+    <rect x="40" y="128" width="12" height="4" rx="2" fill="#FCA5A5"/>
+  </g>
+</svg>

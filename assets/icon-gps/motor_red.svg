@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 128" width="64" height="128">
+  <g transform="translate(32, 64) rotate(0) translate(-32, -64)">
+    <!-- Front Wheel -->
+    <rect x="28" y="12" width="8" height="24" rx="4" fill="#0F172A"/>
+    <!-- Rear Wheel -->
+    <rect x="26" y="90" width="12" height="30" rx="4" fill="#0F172A"/>
+    <!-- Body / Frame -->
+    <rect x="24" y="30" width="16" height="70" rx="6" fill="#EF4444"/>
+    <!-- Front Fairing -->
+    <path d="M 24 30 L 40 30 L 44 45 L 20 45 Z" fill="#EF4444"/>
+    <!-- Handlebars -->
+    <path d="M 12 40 Q 32 25 52 40" fill="none" stroke="#475569" stroke-width="4" stroke-linecap="round"/>
+    <!-- Seat -->
+    <rect x="26" y="55" width="12" height="34" rx="4" fill="#0F172A"/>
+    <!-- Headlight -->
+    <circle cx="32" cy="22" r="4" fill="#FEF08A"/>
+  </g>
+</svg>

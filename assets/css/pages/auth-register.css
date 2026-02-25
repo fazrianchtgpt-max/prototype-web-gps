@@ -1,0 +1,118 @@
+/* Register Page Specific Styles - Split Layout */
+/* Typically inherits most structure from login, but specific distinctions here */
+
+#auth-register {
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+/* Reusing auth-sidebar from login logic or duplicate if needed unique style */
+.auth-sidebar {
+    background-color: var(--gd-navy);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 60px;
+    position: relative;
+    color: #fff;
+}
+
+/* Background gradient for register to differentiate slightly? Or keep consistent. */
+/* Keeping consistent for brand identity. */
+.auth-sidebar::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image: radial-gradient(#1E3A8A 1px, transparent 1px);
+    background-size: 30px 30px;
+    opacity: 0.1;
+    pointer-events: none;
+}
+
+.register-logo {
+    width: 200px;
+    height: auto;
+    filter: brightness(0) invert(1);
+    margin-bottom: 2rem;
+}
+
+.register-branding-text h1 {
+    color: #fff;
+    font-size: 3rem;
+    font-weight: 800;
+    line-height: 1.2;
+    margin-bottom: 1.5rem;
+}
+
+.register-branding-text p {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 1.1rem;
+    max-width: 400px;
+}
+
+.auth-content {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--gd-card);
+    padding: 40px;
+}
+
+.auth-form-wrapper {
+    width: 100%;
+    max-width: 500px;
+    /* Slightly wider for register form */
+}
+
+.register-title {
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--gd-navy);
+    margin-bottom: 0.5rem;
+}
+
+.register-subtitle {
+    color: var(--gd-text);
+    margin-bottom: 2rem;
+}
+
+@media (max-width: 991.98px) {
+    .auth-sidebar {
+        display: none !important;
+    }
+
+    .register-branding-text {
+        display: none;
+    }
+
+    .auth-content {
+        min-height: 100vh;
+        background-color: transparent !important;
+        padding: 20px;
+        align-items: center;
+    }
+
+    .auth-form-wrapper {
+        background: #ffffff;
+        padding: 40px 30px;
+        border-radius: 16px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+        border: 1px solid #EFF2F5;
+        width: 100%;
+        max-width: 500px;
+        margin: 0 auto;
+    }
+
+    .register-title {
+        text-align: center;
+    }
+
+    .register-subtitle {
+        text-align: center;
+    }
+}

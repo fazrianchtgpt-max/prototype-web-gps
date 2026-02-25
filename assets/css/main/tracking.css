@@ -1,0 +1,297 @@
+/* Futuristic Tracking GPS Styles */
+
+:root {
+    --neon-blue: #1FB6C9;
+    /* --gd-cyan */
+    --neon-red: #EF4444;
+    /* --color-error */
+    --neon-green: #22C55E;
+    /* --color-success */
+    --neon-yellow: #F59E0B;
+    /* --color-warning */
+    --dark-bg: #F5F7FA;
+    /* --gd-bg */
+    --card-bg: #FFFFFF;
+    /* --gd-card */
+    --border-color: #E5E9F0;
+    /* --gd-border */
+}
+
+body {
+    background-color: var(--dark-bg);
+}
+
+/* Elegant Card Styling */
+.futuristic-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+    border-radius: 16px;
+    overflow: hidden;
+    transition: all 0.25s ease;
+}
+
+.futuristic-card:hover {
+    box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.08);
+    transform: translateY(-2px);
+}
+
+.futuristic-card-header {
+    background: var(--card-bg);
+    border-bottom: 1px solid var(--border-color);
+    padding: 1.5rem;
+    position: relative;
+}
+
+/* Removed blue accent line */
+
+/* Map Container */
+.map-container {
+    padding: 2px;
+    background: #fff;
+    border-radius: 12px;
+    position: relative;
+}
+
+
+
+/* Removed tacky map overlay */
+
+.map-embed {
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+    z-index: 1;
+}
+
+/* Custom Badges */
+.badge-neon-danger {
+    background: rgba(239, 68, 68, 0.1) !important;
+    /* --color-error */
+    color: var(--neon-red) !important;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    font-weight: 600;
+}
+
+.badge-neon-warning {
+    background: rgba(245, 158, 11, 0.1) !important;
+    /* --color-warning */
+    color: #e6b800 !important;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    font-weight: 600;
+}
+
+.badge-neon-info {
+    background: rgba(31, 182, 201, 0.1) !important;
+    /* --gd-cyan */
+    color: var(--neon-blue) !important;
+    border: 1px solid rgba(31, 182, 201, 0.3);
+    font-weight: 600;
+}
+
+.badge-neon-success {
+    background: rgba(34, 197, 94, 0.1) !important;
+    /* --color-success */
+    color: var(--neon-green) !important;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    font-weight: 600;
+}
+
+/* Filter Buttons */
+.futuristic-filter {
+    background: #fdfdfd;
+    border: 1px solid #eaeaea;
+    border-radius: 15px;
+    box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.02);
+}
+
+.btn-cyber {
+    background: transparent;
+    color: #555;
+    border: 1px solid rgba(31, 182, 201, 0.3);
+    border-radius: 50px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    padding: 0.3rem 0.8rem;
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.5px;
+}
+
+.btn-cyber:hover,
+.btn-cyber.active {
+    background: var(--neon-blue);
+    color: white;
+    border-color: var(--neon-blue);
+    transform: translateY(-2px);
+}
+
+/* Table Design */
+.futuristic-table-wrapper {
+    background: #fff;
+    border-radius: 15px;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.02);
+    overflow: hidden;
+}
+
+.table-futuristic {
+    margin-bottom: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    width: 100%;
+}
+
+.table-futuristic thead th {
+    background: #F1F5F9;
+    color: #334155;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.5px;
+    padding: 0.6rem 0.5rem;
+    border: none;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.table-futuristic tbody tr {
+    transition: all 0.2s ease;
+    background-color: #FFFFFF;
+}
+
+.table-futuristic tbody tr:nth-of-type(even) {
+    background-color: #F8FAFC;
+}
+
+.table-futuristic tbody tr:hover {
+    background-color: #EFF6FF;
+}
+
+.table-futuristic tbody td {
+    padding: 0.6rem 0.5rem;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--border-color);
+    color: #334155;
+    font-size: 0.78rem;
+}
+
+/* Status dots */
+.status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+}
+
+.status-dot.danger {
+    background: var(--neon-red);
+}
+
+.status-dot.success {
+    background: var(--neon-green);
+}
+
+/* Title styling */
+.page-title-cyber {
+    font-size: 1.8rem;
+    font-weight: 800;
+    color: #0F172A;
+    /* --gd-heading */
+    letter-spacing: -0.5px;
+}
+
+/* Responsiveness */
+@media (max-width: 768px) {
+    .btn-cyber {
+        font-size: 0.65rem;
+        padding: 0.25rem 0.6rem;
+    }
+
+    .badge-neon-danger,
+    .badge-neon-warning,
+    .badge-neon-info,
+    .badge-neon-success {
+        font-size: 0.7rem !important;
+        padding: 0.4rem 0.8rem !important;
+    }
+
+    .page-title-cyber {
+        font-size: 1.4rem;
+    }
+}
+
+/* Custom Leaflet Popup Styles */
+.futuristic-popup .leaflet-popup-content-wrapper {
+    background: #FFFFFF;
+    border: 1px solid #E5E9F0;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    border-radius: 12px;
+}
+
+.futuristic-popup .leaflet-popup-tip {
+    background: #FFFFFF;
+    border: 1px solid #E5E9F0;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+.futuristic-popup .leaflet-popup-content {
+    margin: 10px;
+}
+
+.futuristic-popup .leaflet-popup-close-button {
+    color: #EF4444 !important;
+    top: 12px !important;
+    right: 12px !important;
+    font-size: 16px !important;
+}
+
+/* Map Overlay Controls */
+.map-controls-panel {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    z-index: 1000;
+    width: 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.map-control-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.mc-btn {
+    border: none;
+    border-radius: 8px;
+    padding: 0.6rem;
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-align: center;
+    color: #333;
+    background: #E5E7EB;
+    /* Default light gray */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
+.mc-btn:hover {
+    filter: brightness(0.95);
+    transform: translateY(-1px);
+}
+
+.mc-btn.orange {
+    background: #F97316;
+    /* Orange */
+    color: #fff;
+}
+
+.mc-btn.yellow {
+    background: #FBBF24;
+    /* Yellow */
+    color: #fff;
+}

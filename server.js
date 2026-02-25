@@ -83,7 +83,6 @@ const gpsServer = net.createServer((socket) => {
             }
 
             let infoByte = (packetId === '13' || packetId === '26') ? data[4] : data[31];
-            // GT06N: Bit 1 (weight 2) is ACC
             const isAccOn = (infoByte & 0x02) !== 0;
             const newAcc = isAccOn ? "ON" : "OFF";
 
@@ -118,23 +117,15 @@ const gpsServer = net.createServer((socket) => {
                 const speed = data[speedOffset];
                 const courseInfo = data.readUInt16BE(courseOffset);
 
-                // GT06 Factor: 1/1,800,000
                 let lat = latRaw / 1800000;
                 let lon = lonRaw / 1800000;
 
-                // Bitmask for Indonesia (South Latitude, East Longitude)
-                // Bit 12 (0x1000) of CourseInfo: 1 = South, 0 = North
-                // Bit 13 (0x2000) of CourseInfo: 1 = West, 0 = East
                 const isSouth = (courseInfo & 0x1000) !== 0;
                 const isWest = (courseInfo & 0x2000) !== 0;
                 const isAccOn = (courseInfo & 0x0400) !== 0;
 
                 if (isSouth && lat > 0) lat = -lat;
-                else if (!isSouth && lat > 0) { /* North, stay positive */ }
-
                 if (isWest && lon > 0) lon = -lon;
-
-                // FORCE INDONESIA FALLBACK (If Lat > 0 but it's likely Indo, force South)
                 if (lat > 0 && lat < 10 && lon > 90) lat = -lat;
 
                 const currentAcc = isAccOn ? "ON" : "OFF";
@@ -166,13 +157,41 @@ const gpsServer = net.createServer((socket) => {
     socket.on('close', () => { if (currentImei) delete activeGpsSockets[currentImei]; });
 });
 
+/**
+ * GT06N Command Packet (0x80)
+ * Format: 78 78 [Length] 80 [ContentLen] [ServerFlag] [Command] [Serial] [CRC] 0D 0A
+ */
 function createCommandPacket(command) {
     const cmdBuffer = Buffer.from(command, 'ascii');
-    const body = Buffer.concat([Buffer.from([0x80, cmdBuffer.length]), cmdBuffer, Buffer.from([0x00, 0x01])]);
-    const length = body.length + 2;
-    const p = Buffer.concat([Buffer.from([length]), body]);
-    const crc = getCRC(p);
-    return Buffer.concat([Buffer.from([0x78, 0x78]), p, Buffer.from([(crc >> 8) & 0xFF, crc & 0xFF, 0x0d, 0x0a])]);
+
+    // Command content length = 1 byte (ServerFlag len) + 4 bytes (ServerFlag) + N bytes (Command) + 2 bytes (Serial)
+    // Actually, usually it's [80] [Len of Command String + 4 (for flag)] [Flag] [Command] [Serial]
+    const body = Buffer.concat([
+        Buffer.from([0x80]), // ID
+        Buffer.from([cmdBuffer.length + 4]), // Length of Flag + Command
+        Buffer.from([0x00, 0x00, 0x00, 0x00]), // Server Flag (must be 4 bytes)
+        cmdBuffer, // The command string
+        Buffer.from([0x00, 0x01]) // Serial Number
+    ]);
+
+    const packetLength = body.length; // From Protocol ID to Serial Number
+    const headerWithLen = Buffer.concat([
+        Buffer.from([0x78, 0x78]),
+        Buffer.from([packetLength])
+    ]);
+
+    const packetToCRC = Buffer.concat([
+        Buffer.from([packetLength]),
+        body
+    ]);
+
+    const crcVal = getCRC(packetToCRC);
+
+    return Buffer.concat([
+        headerWithLen,
+        body,
+        Buffer.from([(crcVal >> 8) & 0xFF, crcVal & 0xFF, 0x0d, 0x0a])
+    ]);
 }
 
 io.on('connection', (ws) => {
@@ -180,8 +199,13 @@ io.on('connection', (ws) => {
     ws.on('send_command', (d) => {
         const s = activeGpsSockets[d.imei];
         if (s) {
-            s.write(createCommandPacket(d.command));
+            const p = createCommandPacket(d.command);
+            s.write(p);
+            console.log(`🔌 Sent Command [${d.command}] to ${d.imei} | Hex: ${p.toString('hex')}`);
             ws.emit('command_res', { status: 'success', msg: 'Sent' });
+        } else {
+            console.log(`❌ Command Failed: ${d.imei} is offline`);
+            ws.emit('command_res', { status: 'error', msg: 'Offline' });
         }
     });
 });

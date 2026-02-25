@@ -43,10 +43,19 @@ const gpsServer = net.createServer((socket) => {
 
     socket.on('data', (data) => {
         const hex = data.toString('hex').toLowerCase();
-        const packetId = hex.substring(6, 8); // Ambil ID protokol
+
+        // Cek Header 0x7878 atau 0x7979
+        const isStandard = hex.startsWith('7878');
+        const isExtended = hex.startsWith('7979');
+
+        if (!isStandard && !isExtended) return;
+
+        // Ambil ID Protokol (Byte ke-4)
+        // Jika 7878 -> index 6,8. Jika 7979 -> index 6,8 juga (tergantung panjang)
+        const packetId = hex.substring(6, 8);
 
         // 1. LOGIN HANDLING (ID 01)
-        if (hex.startsWith('7878') && packetId === '01') {
+        if (isStandard && packetId === '01') {
             currentImei = hex.substring(8, 24);
             activeGpsSockets[currentImei] = socket;
 
@@ -63,47 +72,61 @@ const gpsServer = net.createServer((socket) => {
         }
 
         // 2. HEARTBEAT (ID 13)
-        else if (hex.startsWith('7878') && packetId === '13') {
+        else if (isStandard && packetId === '13') {
             const serial = data.slice(data.length - 6, data.length - 4);
             socket.write(Buffer.from([0x78, 0x78, 0x05, 0x13, serial[0], serial[1], 0x00, 0x00, 0x0d, 0x0a]));
-            console.log(`[${new Date().toLocaleTimeString()}] 💓 Heartbeat: ${currentImei || 'Unknown'} - Alat Masih Aktif/Standby`);
+            console.log(`[${new Date().toLocaleTimeString()}] 💓 Heartbeat: ${currentImei || 'Unknown'}`);
         }
 
-        // 3. LOCATION DATA (ID 12 atau 22)
-        else if (hex.startsWith('7878') && (packetId === '12' || packetId === '22')) {
+        // 3. LOCATION DATA (Multiple IDs)
+        else if (packetId === '12' || packetId === '22' || packetId === '18' || packetId === '20') {
             try {
-                const latHex = hex.substring(22, 30);
-                const lonHex = hex.substring(30, 38);
-                const speedHex = hex.substring(38, 40);
+                let latHex, lonHex, speedHex;
 
-                let lat = parseInt(latHex, 16) / 1800000;
-                let lon = parseInt(lonHex, 16) / 1800000;
-                if (lat > 0) lat = -lat; // Lintang Selatan (Indonesia)
+                if (packetId === '12' || packetId === '22') {
+                    latHex = hex.substring(22, 30);
+                    lonHex = hex.substring(30, 38);
+                    speedHex = hex.substring(38, 40);
+                } else if (packetId === '18') {
+                    // ID 18 biasanya hexnya lebih panjang, offset kordinat bergeser
+                    latHex = hex.substring(28, 36);
+                    lonHex = hex.substring(36, 44);
+                    speedHex = hex.substring(44, 46);
+                } else if (packetId === '20' && isExtended) {
+                    // ID 20 (7979) offset beda lagi
+                    latHex = hex.substring(34, 42);
+                    lonHex = hex.substring(42, 50);
+                    speedHex = hex.substring(50, 52);
+                }
 
-                const speed = parseInt(speedHex, 16);
+                if (latHex && lonHex) {
+                    let lat = parseInt(latHex, 16) / 1800000;
+                    let lon = parseInt(lonHex, 16) / 1800000;
+                    if (lat > 0) lat = -lat; // Lintang Selatan (Indonesia)
 
-                // Siapkan data untuk Dashboard (Pastikan tipe data lat/lon number)
-                const payload = {
-                    imei: currentImei || "353701096329020",
-                    nopol: "T 5670 OP",
-                    lat: parseFloat(lat.toFixed(6)), // Ubah string kembali jadi number
-                    lon: parseFloat(lon.toFixed(6)), // Ubah string kembali jadi number
-                    speed: speed,
-                    acc: speed > 0 ? "ON" : "OFF",
-                    sat: Math.floor(Math.random() * 5) + 8,
-                    time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
-                    alarm: "Normal"
-                };
+                    const speed = parseInt(speedHex || "00", 16);
 
-                // Lempar ke Browser via Socket.io
-                io.emit('vessel_move', payload);
-                console.log(`📍 Live: ${payload.nopol} | Speed: ${speed} km/h`);
+                    const payload = {
+                        imei: currentImei || "0353701096329020",
+                        nopol: "B 1234 ABC",
+                        lat: parseFloat(lat.toFixed(6)),
+                        lon: parseFloat(lon.toFixed(6)),
+                        speed: speed,
+                        acc: speed > 0 ? "ON" : "OFF",
+                        sat: Math.floor(Math.random() * 5) + 8,
+                        time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
+                        alarm: "Normal"
+                    };
+
+                    io.emit('vessel_move', payload);
+                    console.log(`📍 LIVE: ${payload.nopol} | Lat: ${payload.lat} | Lon: ${payload.lon} | Speed: ${speed} km/h`);
+                }
             } catch (e) {
                 console.error("Gagal parsing koordinat:", e);
             }
         } else {
-            // Log Unhandled packets (Berguna untuk melihat apakah alat ngirim data lain)
-            console.log(`[${new Date().toLocaleTimeString()}] 📦 Raw Data Masuk (ID: ${packetId}) -> ${hex}`);
+            // Log Unhandled packets
+            console.log(`[${new Date().toLocaleTimeString()}] 📦 Raw Data (ID: ${packetId}) -> ${hex.substring(0, 40)}...`);
         }
     });
 
@@ -112,23 +135,18 @@ const gpsServer = net.createServer((socket) => {
         console.log("🔴 GPS Disconnected");
     });
 
-    socket.on('error', () => { });
+    socket.on('error', (err) => { console.log("⚠️ Socket Error:", err.message); });
 });
 
-// --- SOCKET.IO (HUBUNGAN WEB -> SERVER) ---
+// --- SOCKET.IO ---
 io.on('connection', (webSocket) => {
-    console.log("🖥️ Dashboard Browser Connected");
-
+    console.log("🖥️ Dashboard Connected");
     webSocket.on('send_command', (data) => {
         const { imei, command } = data;
-        console.log(`🔌 Mengirim perintah ${command} ke IMEI: ${imei}`);
-
         const targetSocket = activeGpsSockets[imei];
         if (targetSocket) {
             targetSocket.write(`DYD,${command === 'RELAY,1#' ? '1' : '0'}#`);
-            webSocket.emit('command_res', { status: 'success', msg: 'Perintah terkirim!' });
-        } else {
-            webSocket.emit('command_res', { status: 'error', msg: 'Alat tidak terhubung!' });
+            webSocket.emit('command_res', { status: 'success', msg: 'Sent!' });
         }
     });
 });

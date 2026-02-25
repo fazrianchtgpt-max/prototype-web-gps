@@ -76,9 +76,20 @@ document.addEventListener("DOMContentLoaded", function () {
         if (typeof socket !== 'undefined' && socket.connected) {
             console.log(`Sending ${command} to ${imei}`);
             socket.emit('send_command', { imei: imei, command: command });
-            alert(`Perintah ${command} dikirim ke unit ${imei}...`);
+            // Gunakan Toast atau Mini alert agar tidak mengganggu aliran real-time
+            console.log(`Perintah ${command} dikirim ke unit ${imei}...`);
         } else {
             alert('Koneksi server terputus!');
+        }
+    };
+
+    // Helper untuk tombol di Control Panel (Target mobil pertama jika nopol kosong)
+    window.sendRemoteCommandByNopol = function (command) {
+        const ids = Object.keys(vehiclesData);
+        if (ids.length > 0) {
+            window.sendRemoteCommand(ids[0], command);
+        } else {
+            alert('Belum ada kendaraan yang terhubung!');
         }
     };
 

@@ -110,9 +110,18 @@
                                         </div>
                                         <div class="collapse" id="mapControlsCollapse">
                                             <div class="map-control-grid p-2 bg-white rounded-3 shadow border-0">
-                                                <button class="mc-btn orange">Engine ON</button>
-                                                <button class="mc-btn yellow">Engine OFF</button>
-                                                <button class="mc-btn">Street View</button>
+                                                <button class="mc-btn orange"
+                                                    onclick="sendRemoteCommandByNopol('RELAY,0#')">Engine ON</button>
+                                                <button class="mc-btn yellow"
+                                                    onclick="sendRemoteCommandByNopol('RELAY,1#')">Engine OFF</button>
+                                                <button class="mc-btn" onclick="sendRemoteCommandByNopol('STATUS#')">Cek
+                                                    Status</button>
+                                                <button class="mc-btn"
+                                                    onclick="sendRemoteCommandByNopol('PARAM#')">Parameter</button>
+                                                <button class="mc-btn"
+                                                    onclick="sendRemoteCommandByNopol('WHERE#')">Posisi Alamat</button>
+                                                <button class="mc-btn red"
+                                                    onclick="sendRemoteCommandByNopol('RESET#')">Reboot</button>
                                                 <button class="mc-btn">Center</button>
                                             </div>
                                         </div>

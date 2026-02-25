@@ -20,7 +20,7 @@ const WEB_PORT = 3000;
 
 const activeGpsSockets = {};
 const lastPayloads = {};
-const lastAccStatus = {}; // Menyimpan status kunci terakhir per IMEI
+const lastAccStatus = {};
 
 function getCRC(data) {
     let crc = 0xFFFF;
@@ -73,52 +73,54 @@ const gpsServer = net.createServer((socket) => {
             console.log(`[${new Date().toLocaleTimeString()}] 🟢 Login: ${currentImei}`);
         }
 
-        // 2. HEARTBEAT / STATUS (ID 13, 94)
-        else if (packetId === '13' || packetId === '94') {
-            // Balas Heartbeat dulu biar ga DC
+        // 2. HEARTBEAT / STATUS / ALARM (ID 13, 94, 26, 27)
+        else if (packetId === '13' || packetId === '94' || packetId === '26' || packetId === '27') {
             if (isStandard && packetId === '13') {
                 const serial = data.slice(data.length - 6, data.length - 4);
                 socket.write(Buffer.from([0x78, 0x78, 0x05, 0x13, serial[0], serial[1], 0x00, 0x00, 0x0d, 0x0a]));
             }
 
-            // --- AMBIL STATUS ACC (IGNITION) ---
-            // Pada Concox/GT06N, status ACC biasanya ada di byte "Terminal Information"
-            // Untuk Heartbeat 0x13 standar: 7878 05 13 [Information] ...
-            // Untuk 0x94 (Extended): 7979 ... [Information] ...
+            // Extract Termianl Info Byte
+            let info = 0;
+            if (packetId === '13') info = data[4];
+            else if (packetId === '94') info = data[31] || data[30];
+            else if (packetId === '26' || packetId === '27') info = data[4];
 
-            let terminalInfoByte = 0;
-            if (isStandard && packetId === '13') {
-                terminalInfoByte = data[4]; // Byte setelah ID 13
-            } else if (isExtended && packetId === '94') {
-                // Biasanya ada di byte ke-30 atau ke-31 tergantung model
-                terminalInfoByte = data[31] || data[30];
-            }
+            // Bitwise ACC check (GT06N: Bit 1 is Ignition)
+            const isAccOn = (info & 0x02) !== 0;
+            const newAcc = isAccOn ? "ON" : "OFF";
 
-            // Bit 1 biasanya ACC (1 = ON, 0 = OFF)
-            const isAccOn = (terminalInfoByte & 0x02) !== 0 || (terminalInfoByte & 0x01) !== 0;
+            if (currentImei && lastAccStatus[currentImei] !== newAcc) {
+                lastAccStatus[currentImei] = newAcc;
+                console.log(`[${new Date().toLocaleTimeString()}] ⚡ Realtime ACC Change [${currentImei}]: ${newAcc}`);
 
-            if (currentImei) {
-                lastAccStatus[currentImei] = isAccOn ? "ON" : "OFF";
-                console.log(`[${new Date().toLocaleTimeString()}] 💓 Status Update [${currentImei}]: Mesin ${lastAccStatus[currentImei]}`);
-
-                // Update cache payload jika sudah ada data lokasi
+                // PUSH IMMEDIATELY to frontend even if no new location
                 if (lastPayloads[currentImei]) {
-                    lastPayloads[currentImei].acc = lastAccStatus[currentImei];
+                    lastPayloads[currentImei].acc = newAcc;
+                    lastPayloads[currentImei].time = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
                     io.emit('vessel_move', lastPayloads[currentImei]);
                 }
+            } else {
+                console.log(`[${new Date().toLocaleTimeString()}] 💓 Heartbeat [${currentImei || '353701096329020'}]: Mesin ${newAcc}`);
             }
         }
 
         // 3. LOCATION DATA (12, 18, 22)
         else if (packetId === '12' || packetId === '22' || packetId === '18') {
             try {
-                let latHex = '', lonHex = '', speedHex = '', statusByte = 0;
+                let latHex = '', lonHex = '', speedHex = '', accBit = false;
 
                 if (packetId === '12' || packetId === '22') {
                     latHex = hex.substring(22, 30);
                     lonHex = hex.substring(30, 38);
                     speedHex = hex.substring(38, 40);
-                    statusByte = data[30] || data[20]; // Mencoba ambil status Ignition
+
+                    // In location packet 0x12, byte 30 (hex index 60) marks status
+                    // but usually it's better to rely on Status packets (0x13) or 
+                    // look for the bit in the specific device info section.
+                    // For prototype, we combine with speed as fallback if no heartbeat yet
+                    const infoByte = data[30] || 0;
+                    accBit = (infoByte & 0x02) !== 0;
                 } else if (packetId === '18') {
                     latHex = hex.substring(28, 36);
                     lonHex = hex.substring(36, 44);
@@ -126,23 +128,18 @@ const gpsServer = net.createServer((socket) => {
                 }
 
                 if (latHex && lonHex && latHex !== '00000000') {
-                    let lat = parseInt(latHex, 16) / 1800000;
-                    let lon = parseInt(lonHex, 16) / 1800000;
-                    if (lat > 0) lat = -lat;
-
+                    const lat = parseInt(latHex, 16) / 1800000;
+                    const lon = parseInt(lonHex, 16) / 1800000;
                     const speed = parseInt(speedHex || "00", 16);
 
-                    // Gunakan status ACC dari packet lokasi jika bit-nya ketemu
-                    // Bit 1 (weight 2) atau Bit 0 di terminal byte info
-                    if (statusByte > 0) {
-                        const packetAcc = (statusByte & 2) !== 0 || (statusByte & 1) !== 0;
-                        if (currentImei) lastAccStatus[currentImei] = packetAcc ? "ON" : "OFF";
-                    }
+                    // Sync ACC status
+                    if (packetId === '12' && accBit) lastAccStatus[currentImei] = "ON";
+                    else if (packetId === '12' && !accBit && speed === 0) lastAccStatus[currentImei] = "OFF";
 
                     const payload = {
                         imei: currentImei || "353701096329020",
                         nopol: "T FAZRIAN ABC",
-                        lat: parseFloat(lat.toFixed(6)),
+                        lat: parseFloat((lat > 0 ? -lat : lat).toFixed(6)),
                         lon: parseFloat(lon.toFixed(6)),
                         speed: speed,
                         acc: lastAccStatus[currentImei] || (speed > 0 ? "ON" : "OFF"),
@@ -153,7 +150,7 @@ const gpsServer = net.createServer((socket) => {
 
                     lastPayloads[payload.imei] = payload;
                     io.emit('vessel_move', payload);
-                    console.log(`📍 LIVE: ${payload.nopol} | ${payload.lat}, ${payload.lon} | ${speed} km/h | Mesin: ${payload.acc}`);
+                    console.log(`📍 LIVE: ${payload.nopol} | ${payload.lat}, ${payload.lon} | ${speed} km/h | Acc: ${payload.acc}`);
                 }
             } catch (e) {
                 console.error("Gagal parsing:", e.message);
@@ -168,48 +165,34 @@ const gpsServer = net.createServer((socket) => {
     socket.on('error', (err) => { console.log("⚠️ Error:", err.message); });
 });
 
-// Helper untuk membungkus perintah GT06N ke paket Binary GPRS (Protokol 0x80)
 function createCommandPacket(command) {
     const cmdBuffer = Buffer.from(command, 'ascii');
-    // Body: 80 (ID) + Len(1) + Command + Serial(2)
     const body = Buffer.concat([
         Buffer.from([0x80]),
         Buffer.from([cmdBuffer.length]),
         cmdBuffer,
         Buffer.from([0x00, 0x01])
     ]);
-
     const length = body.length + 2;
     const packetBeforeCrc = Buffer.concat([Buffer.from([length]), body]);
     const crcVal = getCRC(packetBeforeCrc);
-
-    return Buffer.concat([
-        Buffer.from([0x78, 0x78]),
-        packetBeforeCrc,
-        Buffer.from([(crcVal >> 8) & 0xFF, crcVal & 0xFF, 0x0d, 0x0a])
-    ]);
+    return Buffer.concat([Buffer.from([0x78, 0x78]), packetBeforeCrc, Buffer.from([(crcVal >> 8) & 0xFF, crcVal & 0xFF, 0x0d, 0x0a])]);
 }
 
 io.on('connection', (webSocket) => {
     console.log("🖥️ Web Connected");
-
     Object.values(lastPayloads).forEach(payload => {
         webSocket.emit('vessel_move', payload);
     });
-
     webSocket.on('send_command', (data) => {
         const { imei, command } = data;
-        console.log(`🔌 Mencoba mengirim perintah [${command}] ke IMEI: ${imei}`);
-
         const targetSocket = activeGpsSockets[imei];
         if (targetSocket) {
-            const packet = createCommandPacket(command);
-            targetSocket.write(packet);
-            console.log(`✅ Perintah Terkirim ke Hardware via GPRS Paket!`);
-            webSocket.emit('command_res', { status: 'success', msg: 'Perintah terkirim ke alat!' });
+            targetSocket.write(createCommandPacket(command));
+            console.log(`✅ CMD [${command}] -> ${imei}`);
+            webSocket.emit('command_res', { status: 'success', msg: `Sent: ${command}` });
         } else {
-            console.log(`❌ Gagal: IMEI ${imei} tidak terhubung.`);
-            webSocket.emit('command_res', { status: 'error', msg: 'Alat tidak terhubung!' });
+            webSocket.emit('command_res', { status: 'error', msg: 'Offline' });
         }
     });
 });

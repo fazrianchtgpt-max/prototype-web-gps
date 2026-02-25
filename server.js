@@ -45,19 +45,6 @@ function getCRC(data) {
     return crc ^ 0xFFFF;
 }
 
-const alarmMap = {
-    '00': 'Normal',
-    '01': '🚨 SOS ALARM!',
-    '02': '🚫 Power Cut!',
-    '03': '📳 Vibration Alert',
-    '04': '📥 Enter Fence',
-    '05': '📤 Exit Fence',
-    '06': '🏎️ Over Speed',
-    '09': '🔋 Moving Alarm',
-    '14': '📉 Low Battery',
-    '18': '🔌 Power Cut Alarm'
-};
-
 const gpsServer = net.createServer((socket) => {
     let currentImei = null;
 
@@ -69,7 +56,7 @@ const gpsServer = net.createServer((socket) => {
 
         const packetId = isStandard ? hex.substring(6, 8) : hex.substring(8, 10);
 
-        // 1. LOGIN (01)
+        // 1. LOGIN
         if (isStandard && packetId === '01') {
             const rawImei = hex.substring(8, 24);
             currentImei = rawImei.startsWith('0') ? rawImei.substring(1) : rawImei;
@@ -88,7 +75,7 @@ const gpsServer = net.createServer((socket) => {
             console.log(`[${new Date().toLocaleTimeString()}] 🟢 Login: ${currentImei}`);
         }
 
-        // 2. HEARTBEAT / STATUS (13, 26, 94)
+        // 2. HEARTBEAT / STATUS
         else if (packetId === '13' || packetId === '26' || packetId === '94') {
             if (isStandard && (packetId === '13' || packetId === '26')) {
                 const serial = data.slice(data.length - 6, data.length - 4);
@@ -104,6 +91,7 @@ const gpsServer = net.createServer((socket) => {
 
             if (currentImei) {
                 lastAccStatus[currentImei] = newAcc;
+                // Only override if not recently changed by web (wait for hardware confirmation eventually)
                 lastRelayStatus[currentImei] = newRelay;
 
                 if (lastPayloads[currentImei]) {
@@ -119,7 +107,7 @@ const gpsServer = net.createServer((socket) => {
             }
         }
 
-        // 3. LOCATION (12, 22)
+        // 3. LOCATION
         else if (packetId === '12' || packetId === '22') {
             try {
                 const latRaw = data.readUInt32BE(11);
@@ -162,10 +150,9 @@ const gpsServer = net.createServer((socket) => {
             } catch (e) { }
         }
 
-        // 4. COMMAND RESPONSE (15)
+        // 4. RESPONSE
         else if (packetId === '15') {
             console.log(`[${new Date().toLocaleTimeString()}] 📥 Hardware Response: ${hex}`);
-            io.emit('hardware_msg', { imei: currentImei, raw: hex });
         }
     });
 
@@ -184,17 +171,30 @@ const gpsServer = net.createServer((socket) => {
 function createCommandPacket(command) {
     const cmdBuffer = Buffer.from(command, 'ascii');
     const serialNum = getNextSerial();
-    const body = Buffer.concat([
-        Buffer.from([0x80]),
-        Buffer.from([cmdBuffer.length + 4]),
-        Buffer.from([0x00, 0x00, 0x00, 0x01]), // Server Flag 1
+    const infoHeader = Buffer.from([0x00, 0x00, 0x00, 0x01]); // Fixed Server Flag
+
+    // Structure: 78 78 [Len] 80 [LenContent] [Flag] [Command] [Serial] [CRC] 0d 0a
+    const content = Buffer.concat([
+        infoHeader,
         cmdBuffer,
         Buffer.from([(serialNum >> 8) & 0xFF, serialNum & 0xFF])
     ]);
-    const length = body.length;
-    const p = Buffer.concat([Buffer.from([0x78, 0x78, length]), body]);
-    const crcVal = getCRC(Buffer.concat([Buffer.from([length]), body]));
-    return Buffer.concat([p, Buffer.from([(crcVal >> 8) & 0xFF, crcVal & 0xFF, 0x0d, 0x0a])]);
+
+    const protocol = 0x80;
+    const contentLen = content.length;
+    const body = Buffer.concat([
+        Buffer.from([protocol, contentLen]),
+        content
+    ]);
+
+    const totalLen = body.length;
+    const pHeader = Buffer.concat([Buffer.from([0x78, 0x78, totalLen]), body]);
+    const crcVal = getCRC(body); // CRC over protocol + contentLen + content
+
+    return Buffer.concat([
+        pHeader,
+        Buffer.from([(crcVal >> 8) & 0xFF, crcVal & 0xFF, 0x0d, 0x0a])
+    ]);
 }
 
 io.on('connection', (ws) => {
@@ -202,9 +202,20 @@ io.on('connection', (ws) => {
     ws.on('send_command', (d) => {
         const s = activeGpsSockets[d.imei];
         if (s) {
+            // OPTIMISTIC UPDATE: Langsung update status di server saat perintah dikirim
+            const isOff = d.command.includes('1#');
+            const targetStatus = isOff ? "OFF" : "ON";
+            lastRelayStatus[d.imei] = targetStatus;
+
+            if (lastPayloads[d.imei]) {
+                lastPayloads[d.imei].relay = targetStatus;
+                io.emit('vessel_move', lastPayloads[d.imei]);
+                console.log(`[${new Date().toLocaleTimeString()}] ⚡ Optimistic Status Update: ${d.imei} -> Mesin ${targetStatus}`);
+            }
+
             const p = createCommandPacket(d.command);
             s.write(p);
-            console.log(`[${new Date().toLocaleTimeString()}] 🔌 Web Command [${d.command}] to ${d.imei} (Serial: ${globalSerial})`);
+            console.log(`[${new Date().toLocaleTimeString()}] 🔌 Sent [${d.command}] to ${d.imei}`);
             ws.emit('command_res', { status: 'success', msg: 'Sent' });
         } else {
             ws.emit('command_res', { status: 'error', msg: 'Device Offline' });

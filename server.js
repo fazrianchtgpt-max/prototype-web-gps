@@ -56,7 +56,7 @@ const gpsServer = net.createServer((socket) => {
 
         // 1. LOGIN HANDLING (ID 01)
         if (isStandard && packetId === '01') {
-            currentImei = hex.substring(8, 24);
+            currentImei = hex.substring(8, 23); // IMEI 15 digit
             activeGpsSockets[currentImei] = socket;
 
             const serial = data.slice(data.length - 6, data.length - 4);
@@ -107,8 +107,8 @@ const gpsServer = net.createServer((socket) => {
                     const speed = parseInt(speedHex || "00", 16);
 
                     const payload = {
-                        imei: currentImei || "0353701096329020",
-                        nopol: "B 1234 ABC",
+                        imei: currentImei || "353701096329020",
+                        nopol: "T FAZRIAN ABC",
                         lat: parseFloat(lat.toFixed(6)),
                         lon: parseFloat(lon.toFixed(6)),
                         speed: speed,

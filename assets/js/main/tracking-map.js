@@ -124,7 +124,7 @@ document.addEventListener("DOMContentLoaded", function () {
             if (!vehiclesData[vehicleId]) {
                 vehiclesData[vehicleId] = {
                     id: vehicleId,
-                    name: data.nopol || 'B 1234 ABC',
+                    name: data.nopol || 'T FAZRIAN ABC',
                     imei: vehicleId,
                     gsm: "Simcard Aktif",
                     odometer: "0",

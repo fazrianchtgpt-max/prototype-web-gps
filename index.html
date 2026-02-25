@@ -150,12 +150,7 @@
                                 </span>
                             </div>
                             <div class="card-body py-2 px-3">
-                                <!-- Summary (Dynamic) -->
-                                <div id="alarm-summary" class="d-flex flex-wrap gap-2 mb-2">
-                                    <!-- Badges will be injected here when alarm occurs -->
-                                </div>
-
-
+                                <div id="alarm-summary" class="d-flex flex-wrap gap-2 mb-2"></div>
 
                                 <!-- Table -->
                                 <div class="table-responsive mb-4 futuristic-table-wrapper">
@@ -167,16 +162,15 @@
                                                 <th class="py-3">Nopol</th>
                                                 <th class="py-3">Tgl/Jam</th>
                                                 <th class="py-3">Kecepatan</th>
+                                                <th class="py-3">Kontak</th>
                                                 <th class="py-3">Mesin</th>
-                                                <th class="py-3">Charger</th>
-                                                <th class="py-3">Batt</th>
+                                                <th class="py-3">Status Alat</th>
                                                 <th class="py-3">Satelit</th>
                                                 <th class="py-3">Lokasi Terakhir</th>
                                                 <th class="py-3">Pemilik Kendaraan</th>
                                             </tr>
                                         </thead>
                                         <tbody id="vehicle-table-body">
-                                            <!-- Data will be injected here via Socket.io -->
                                             <tr id="no-data-row">
                                                 <td colspan="11" class="text-center py-4 text-muted">
                                                     <i class="bi bi-inbox fs-4 d-block mb-2"></i>
@@ -229,26 +223,16 @@
 
     <!-- Bootstrap Bundle -->
     <script src="assets/extensions/bootstrap-5/js/bootstrap.bundle.min.js"></script>
-
-    <!-- Chart.js from CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-    <!-- Dashboard Script -->
+    <!-- Perfect Scrollbar -->
     <script src="assets/extensions/perfect-scrollbar/perfect-scrollbar.min.js"></script>
     <script src="assets/js/main/dashboard.js"></script>
-
-    <!-- Dashboard Charts -->
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-
     <!-- Socket.io Connect -->
     <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
-
     <!-- Tracking Map Script -->
     <script src="assets/js/main/tracking-map.js"></script>
-
-    <!-- Dashboard Scripts End -->
 </body>
 
 </html>

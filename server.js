@@ -204,17 +204,6 @@ io.on('connection', (ws) => {
     ws.on('send_command', (d) => {
         const s = activeGpsSockets[d.imei];
         if (s) {
-            // OPTIMISTIC UPDATE: Langsung update status di server saat perintah dikirim
-            const isOff = d.command.includes('1#');
-            const targetStatus = isOff ? "OFF" : "ON";
-            lastRelayStatus[d.imei] = targetStatus;
-
-            if (lastPayloads[d.imei]) {
-                lastPayloads[d.imei].relay = targetStatus;
-                io.emit('vessel_move', lastPayloads[d.imei]);
-                console.log(`[${new Date().toLocaleTimeString()}] ⚡ Optimistic Status Update: ${d.imei} -> Mesin ${targetStatus}`);
-            }
-
             const p = createCommandPacket(d.command);
             s.write(p);
             console.log(`[${new Date().toLocaleTimeString()}] 🔌 Sent [${d.command}] to ${d.imei}`);

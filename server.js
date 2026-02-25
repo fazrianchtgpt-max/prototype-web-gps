@@ -173,25 +173,20 @@ const gpsServer = net.createServer((socket) => {
 function createCommandPacket(command) {
     const cmdBuffer = Buffer.from(command, 'ascii');
     const serialNum = getNextSerial();
-    const infoHeader = Buffer.from([0x00, 0x00, 0x00, 0x01]); // Fixed Server Flag
+    const infoHeader = Buffer.from([0x00, 0x00, 0x00, 0x00]); // Most GT06N use zeros for server flag
 
-    // Structure: 78 78 [Len] 80 [LenContent] [Flag] [Command] [Serial] [CRC] 0d 0a
-    const content = Buffer.concat([
+    const protocol = 0x80;
+    const contentLen = infoHeader.length + cmdBuffer.length;
+    const body = Buffer.concat([
+        Buffer.from([protocol, contentLen]),
         infoHeader,
         cmdBuffer,
         Buffer.from([(serialNum >> 8) & 0xFF, serialNum & 0xFF])
     ]);
 
-    const protocol = 0x80;
-    const contentLen = content.length;
-    const body = Buffer.concat([
-        Buffer.from([protocol, contentLen]),
-        content
-    ]);
-
     const totalLen = body.length;
     const pHeader = Buffer.concat([Buffer.from([0x78, 0x78, totalLen]), body]);
-    const crcVal = getCRC(body); // CRC over protocol + contentLen + content
+    const crcVal = getCRC(body);
 
     return Buffer.concat([
         pHeader,

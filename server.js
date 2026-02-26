@@ -113,14 +113,19 @@ function parseBuffer(buf) {
 // ============================================================
 function createCommandPacket(command) {
     const cmdBuf = Buffer.from(command, 'ascii');
+    // Instruction Length = Server Flag (4) + Command Length (N) + Language (2)
+    const cmdLen = 4 + cmdBuf.length + 2;
+    const cmdLenBuf = Buffer.from([cmdLen]);
+    const flagBuf = Buffer.from([0x00, 0x00, 0x00, 0x00]);
+    const langBuf = Buffer.from([0x00, 0x02]); // English
+
     const serial = getNextSerial();
     const serialBuf = Buffer.from([(serial >> 8) & 0xFF, serial & 0xFF]);
-    const flagBuf = Buffer.from([0x00, 0x00, 0x00, 0x00]);
 
-    // body = 0x80 + flag(4) + cmd + serial(2)
-    const body = Buffer.concat([Buffer.from([0x80]), flagBuf, cmdBuf, serialBuf]);
+    // body = 0x80 + InstructionLength(1) + flag(4) + cmd + lang(2) + serial(2)
+    const body = Buffer.concat([Buffer.from([0x80]), cmdLenBuf, flagBuf, cmdBuf, langBuf, serialBuf]);
 
-    // LEN = body.length
+    // MsgLen = body length
     const msgLen = body.length;
     const crc = getCRC(body);
 
@@ -182,15 +187,25 @@ const gpsServer = net.createServer((socket) => {
 
         console.log(`[${new Date().toLocaleTimeString()}] 📦 [${packetId}] ${isExt ? 'EXT' : 'STD'} len=${data.length} | ${hex}`);
 
+        const payloadStart = isStd ? 4 : 5;
+
         // ── LOGIN (01) ──────────────────────────────────────
-        if (isStd && packetId === '01') {
-            const rawImei = hex.substring(8, 24);
+        if (packetId === '01') {
+            const rawImei = hex.substring(payloadStart * 2, (payloadStart + 8) * 2);
             currentImei = rawImei.startsWith('0') ? rawImei.substring(1) : rawImei;
             activeGpsSockets[currentImei] = socket;
 
             const s0 = data[data.length - 6];
             const s1 = data[data.length - 5];
-            socket.write(buildAck(0x01, s0, s1));
+            const startByte = isStd ? 0x78 : 0x79;
+            // Write ACK
+            const ackBody = Buffer.from([0x05, 0x01, s0, s1]);
+            const ackCrc = getCRC(ackBody);
+            socket.write(Buffer.concat([
+                Buffer.from([startByte, startByte]),
+                ackBody,
+                Buffer.from([(ackCrc >> 8) & 0xFF, ackCrc & 0xFF, 0x0D, 0x0A])
+            ]));
 
             if (lastPayloads[currentImei]) {
                 lastPayloads[currentImei].online = true;
@@ -201,15 +216,20 @@ const gpsServer = net.createServer((socket) => {
 
         // ── HEARTBEAT / STATUS (13, 26, 94) ─────────────────
         else if (['13', '26', '94'].includes(packetId)) {
-            if (isStd) {
-                const s0 = data[data.length - 6];
-                const s1 = data[data.length - 5];
-                socket.write(buildAck(parseInt(packetId, 16), s0, s1));
-            }
+            const s0 = data[data.length - 6];
+            const s1 = data[data.length - 5];
+            const startByte = isStd ? 0x78 : 0x79;
+            const ackBody = Buffer.from([0x05, parseInt(packetId, 16), s0, s1]);
+            const ackCrc = getCRC(ackBody);
+            socket.write(Buffer.concat([
+                Buffer.from([startByte, startByte]),
+                ackBody,
+                Buffer.from([(ackCrc >> 8) & 0xFF, ackCrc & 0xFF, 0x0D, 0x0A])
+            ]));
 
             let infoByte = 0;
             if (packetId === '13' || packetId === '26') {
-                infoByte = data.length > 4 ? data[4] : 0;
+                infoByte = data.length > payloadStart ? data[payloadStart] : 0;
             } else if (packetId === '94') {
                 infoByte = data.length > 31 ? data[31] : 0;
             }
@@ -245,12 +265,12 @@ const gpsServer = net.createServer((socket) => {
 
         // ── LOCATION (12, 22) ────────────────────────────────
         else if (['12', '22'].includes(packetId)) {
-            if (data.length < 22) return;
+            if (data.length < payloadStart + 18) return;
 
-            const latRaw = data.readUInt32BE(11);
-            const lonRaw = data.readUInt32BE(15);
-            const speed = data[19];
-            const courseInfo = data.readUInt16BE(20);
+            const latRaw = data.readUInt32BE(payloadStart + 7);
+            const lonRaw = data.readUInt32BE(payloadStart + 11);
+            const speed = data[payloadStart + 15];
+            const courseInfo = data.readUInt16BE(payloadStart + 16);
 
             let lat = latRaw / 1800000;
             let lon = lonRaw / 1800000;
@@ -265,13 +285,13 @@ const gpsServer = net.createServer((socket) => {
 
             const payload = {
                 imei: currentImei || "unknown",
-                nopol: "T FAZRIAN ABC",
+                nopol: "T FAZRIAN ABC", // Nopol dummy for logic
                 lat: parseFloat(lat.toFixed(6)),
                 lon: parseFloat(lon.toFixed(6)),
                 speed,
                 acc: (currentImei && lastAccStatus[currentImei]) || currentAcc,
                 relay: (currentImei && lastRelayStatus[currentImei]) || "ON",
-                sat: data[10] || 0,
+                sat: data[payloadStart + 6] ? data[payloadStart + 6] & 0x0F : 0,
                 online: true,
                 time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
                 alarm: (currentImei && lastPayloads[currentImei]?.alarm) || "Normal"
@@ -288,9 +308,8 @@ const gpsServer = net.createServer((socket) => {
         // ── COMMAND RESPONSE (15) ────────────────────────────
         else if (packetId === '15') {
             try {
-                // Standard: offset 8 = 2(start)+1(len)+1(proto)+4(flag)
-                // Extended: offset 9 = 2(start)+2(len)+1(proto)+4(flag)
-                const textStart = isStd ? 8 : 9;
+                // 2(start) + len(1/2) + proto(1) + instruction_len(1) + flag(4)
+                const textStart = isStd ? 9 : 10;
                 const textEnd = data.length - 6; // potong serial(2)+crc(2)+stop(2)
 
                 if (textEnd > textStart) {

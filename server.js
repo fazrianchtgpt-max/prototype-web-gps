@@ -3,6 +3,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const fs = require('fs');
 
 const app = express();
 app.use(cors());
@@ -17,8 +18,21 @@ const io = new Server(webServer, {
 const GPS_PORT = 5023;
 const WEB_PORT = 80;
 
+let lastPayloads = {};
+try {
+    if (fs.existsSync('payloads_db.json')) {
+        lastPayloads = JSON.parse(fs.readFileSync('payloads_db.json', 'utf8'));
+        console.log('✅ Loaded last payloads from DB:', Object.keys(lastPayloads));
+    }
+} catch (err) {
+    console.error('Failed to load DB', err);
+}
+
+function savePayloadsDB() {
+    fs.writeFileSync('payloads_db.json', JSON.stringify(lastPayloads, null, 2));
+}
+
 const activeGpsSockets = {};
-const lastPayloads = {};
 const lastAccStatus = {};
 const lastRelayStatus = {};
 const pendingRelayConfirmations = {};
@@ -256,6 +270,7 @@ const gpsServer = net.createServer((socket) => {
                         acc: newAcc, relay: newRelay, online: true,
                         time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })
                     });
+                    savePayloadsDB();
                     io.emit('vessel_move', lastPayloads[currentImei]);
                 }
 
@@ -298,7 +313,10 @@ const gpsServer = net.createServer((socket) => {
             };
 
             if (Math.abs(payload.lat) < 90 && Math.abs(payload.lon) < 180) {
-                if (currentImei) lastPayloads[payload.imei] = payload;
+                if (currentImei) {
+                    lastPayloads[payload.imei] = payload;
+                    savePayloadsDB();
+                }
                 io.emit('vessel_move', payload);
             }
 

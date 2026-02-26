@@ -385,6 +385,30 @@ const gpsServer = net.createServer((socket) => {
             }
         }
 
+        // ── TIME SYNC REQUEST (8a) ───────────────────────────
+        else if (packetId === '8a') {
+            const now = new Date();
+            const year = now.getUTCFullYear() - 2000;
+            const month = now.getUTCMonth() + 1;
+            const day = now.getUTCDate();
+            const hour = now.getUTCHours();
+            const minute = now.getUTCMinutes();
+            const second = now.getUTCSeconds();
+
+            const s0 = data[data.length - 6];
+            const s1 = data[data.length - 5];
+
+            const body = Buffer.from([0x0b, 0x8a, year, month, day, hour, minute, second, s0, s1]);
+            const crc = getCRC(body);
+
+            socket.write(Buffer.concat([
+                Buffer.from([0x78, 0x78]),
+                body,
+                Buffer.from([(crc >> 8) & 0xFF, crc & 0xFF, 0x0D, 0x0A])
+            ]));
+            console.log(`[${new Date().toLocaleTimeString()}] ⏰ Time Sync (8a) Replied`);
+        }
+
         // ── ALARM (16, 19, 98, 2c) ───────────────────────────
         else if (['16', '19', '98', '2c'].includes(packetId)) {
             if (isStd) {

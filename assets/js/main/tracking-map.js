@@ -132,6 +132,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // Socket.io Integration
     var socket;
+    var trackPolylines = {};
+
     if (typeof io !== 'undefined') {
         socket = io('https://kulocloud.biz.id'); // Use standard HTTPS (Cloudflare will proxy to port 80) // Port 8080 for Cloudflare Flexible SSL
 
@@ -171,6 +173,19 @@ document.addEventListener("DOMContentLoaded", function () {
                 icon: 'info',
                 confirmButtonText: 'Oke'
             });
+        });
+
+        socket.on('history_data', (history) => {
+            for (const imei in history) {
+                const points = history[imei].map(p => [p.lat, p.lon]);
+                if (points.length > 0) {
+                    if (!trackPolylines[imei]) {
+                        trackPolylines[imei] = L.polyline(points, { color: '#22c55e', weight: 4, opacity: 0.8 }).addTo(map);
+                    } else {
+                        trackPolylines[imei].setLatLngs(points);
+                    }
+                }
+            }
         });
 
         socket.on('vessel_move', (data) => {
@@ -217,6 +232,13 @@ document.addEventListener("DOMContentLoaded", function () {
                 marker.setLatLng(newLatLng);
                 marker.setIcon(customIcon);
                 if (marker.isPopupOpen()) marker.setPopupContent(generatePopupHTML(vData));
+            }
+
+            // Update Track Polyline
+            if (!trackPolylines[vehicleId]) {
+                trackPolylines[vehicleId] = L.polyline([newLatLng], { color: '#22c55e', weight: 4, opacity: 0.8 }).addTo(map);
+            } else {
+                trackPolylines[vehicleId].addLatLng(newLatLng);
             }
 
             // Update Table

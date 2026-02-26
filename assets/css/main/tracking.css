@@ -140,6 +140,7 @@ body {
     border-collapse: separate;
     border-spacing: 0;
     width: 100%;
+    white-space: nowrap;
 }
 
 .table-futuristic thead th {

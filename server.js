@@ -19,13 +19,16 @@ const GPS_PORT = 5023;
 const WEB_PORT = 80;
 
 let lastPayloads = {};
+let historyDB = {};
 try {
     if (fs.existsSync('payloads_db.json')) {
         lastPayloads = JSON.parse(fs.readFileSync('payloads_db.json', 'utf8'));
         console.log('✅ Loaded last payloads from DB:', Object.keys(lastPayloads));
     }
-
-
+    if (fs.existsSync('history_db.json')) {
+        historyDB = JSON.parse(fs.readFileSync('history_db.json', 'utf8'));
+        console.log('✅ Loaded history from DB');
+    }
 } catch (err) {
     console.error('Failed to load DB', err);
 }
@@ -33,6 +36,31 @@ try {
 function savePayloadsDB() {
     fs.writeFileSync('payloads_db.json', JSON.stringify(lastPayloads, null, 2));
 }
+
+let historySaveTimer = null;
+function scheduleHistorySave() {
+    if (!historySaveTimer) {
+        historySaveTimer = setTimeout(() => {
+            fs.writeFileSync('history_db.json', JSON.stringify(historyDB));
+            historySaveTimer = null;
+        }, 5000); // Save at most every 5 seconds
+    }
+}
+
+// Function to clean up history older than 24 hours
+function cleanUpHistory() {
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000;
+    let modified = false;
+    for (const imei in historyDB) {
+        const originalLen = historyDB[imei].length;
+        historyDB[imei] = historyDB[imei].filter(point => (now - point.ts) <= oneDay);
+        if (historyDB[imei].length !== originalLen) modified = true;
+    }
+    if (modified) scheduleHistorySave();
+}
+// Clean up every hour
+setInterval(cleanUpHistory, 60 * 60 * 1000);
 
 const activeGpsSockets = {};
 const lastAccStatus = {};
@@ -316,6 +344,22 @@ const gpsServer = net.createServer((socket) => {
                 if (currentImei) {
                     lastPayloads[payload.imei] = payload;
                     savePayloadsDB();
+
+                    if (!historyDB[payload.imei]) historyDB[payload.imei] = [];
+                    // Save history if moved or new
+                    const lastPoint = historyDB[payload.imei][historyDB[payload.imei].length - 1];
+                    if (!lastPoint || lastPoint.lat !== payload.lat || lastPoint.lon !== payload.lon) {
+                        historyDB[payload.imei].push({
+                            lat: payload.lat,
+                            lon: payload.lon,
+                            ts: Date.now()
+                        });
+                        // Limit to 10k points just in case
+                        if (historyDB[payload.imei].length > 10000) {
+                            historyDB[payload.imei].shift();
+                        }
+                        scheduleHistorySave();
+                    }
                 }
                 io.emit('vessel_move', payload);
             }
@@ -419,6 +463,7 @@ const gpsServer = net.createServer((socket) => {
 io.on('connection', (ws) => {
     console.log(`[${new Date().toLocaleTimeString()}] 🌐 Client Connected: ${ws.id}`);
     Object.values(lastPayloads).forEach(p => ws.emit('vessel_move', p));
+    ws.emit('history_data', historyDB); // Send full history
 
     ws.on('send_command', (d) => {
         if (!d?.imei || !d?.command) {

@@ -278,44 +278,14 @@ const gpsServer = net.createServer((socket) => {
             }
         }
 
-        // ── LOCATION (12, 22, 94) ────────────────────────────────
-        else if (['12', '22', '94'].includes(packetId)) {
-            if (packetId === '94') {
-                // Reply ACK for 94
-                const s0 = data[data.length - 6];
-                const s1 = data[data.length - 5];
-                const startByte = isStd ? 0x78 : 0x79;
-                const ackBody = Buffer.from([0x05, parseInt(packetId, 16), s0, s1]);
-                const ackCrc = getCRC(ackBody);
-                socket.write(Buffer.concat([
-                    Buffer.from([startByte, startByte]),
-                    ackBody,
-                    Buffer.from([(ackCrc >> 8) & 0xFF, ackCrc & 0xFF, 0x0D, 0x0A])
-                ]));
-            }
+        // ── LOCATION (12, 22) ────────────────────────────────
+        else if (['12', '22'].includes(packetId)) {
+            if (data.length < payloadStart + 18) return;
 
-            let locStart = payloadStart;
-            // Packet 94 Data Information Packet has custom offset usually starting at +9 bytes inside payload
-            if (packetId === '94') locStart = payloadStart + 9;
-
-            if (data.length < locStart + 18) return;
-
-            const latRaw = data.readUInt32BE(locStart + 7);
-            const lonRaw = data.readUInt32BE(locStart + 11);
-            const speed = data[locStart + 15];
-            const courseInfo = data.readUInt16BE(locStart + 16);
-
-            // Fetch generic Status infoByte if available
-            let infoByte = 0;
-            if (packetId === '94') {
-                infoByte = data.length > 31 ? data[31] : 0;
-                const newAcc = (infoByte & 0x02) ? "ON" : "OFF";
-                const newRelay = (infoByte & 0x80) ? "OFF" : "ON";
-                if (currentImei) {
-                    lastAccStatus[currentImei] = newAcc;
-                    lastRelayStatus[currentImei] = newRelay;
-                }
-            }
+            const latRaw = data.readUInt32BE(payloadStart + 7);
+            const lonRaw = data.readUInt32BE(payloadStart + 11);
+            const speed = data[payloadStart + 15];
+            const courseInfo = data.readUInt16BE(payloadStart + 16);
 
             let lat = latRaw / 1800000;
             let lon = lonRaw / 1800000;

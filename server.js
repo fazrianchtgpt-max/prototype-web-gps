@@ -25,23 +25,7 @@ try {
         console.log('✅ Loaded last payloads from DB:', Object.keys(lastPayloads));
     }
 
-    // Fallback data if completely empty (to simulate previous RAM cache)
-    if (Object.keys(lastPayloads).length === 0) {
-        lastPayloads["353701096329020"] = {
-            imei: "353701096329020",
-            nopol: "T FAZRIAN ABC",
-            lat: -6.200000,
-            lon: 106.816666,
-            speed: 0,
-            acc: "OFF",
-            relay: "ON",
-            sat: 10,
-            online: false,
-            time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
-            alarm: "Normal"
-        };
-        console.log('⚠️ Injected fallback legacy payload');
-    }
+
 } catch (err) {
     console.error('Failed to load DB', err);
 }

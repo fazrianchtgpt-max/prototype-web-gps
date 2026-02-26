@@ -49,49 +49,63 @@ function getCRC(data) {
     return crc ^ 0xFFFF;
 }
 
-// ✅ FIXED: createCommandPacket menggunakan Extended Packet 0x7979
-// GT06N command packet format:
-// 7979 | length(2) | protocol(0x80) | serverFlag(4) | command | serial(2) | CRC(2) | 0D0A
+// ============================================================
+// COMMAND PACKET GT06N — Format Standard 7878
+// ============================================================
+// GT06N menerima perintah server dalam format STANDARD (7878):
+//
+// 78 78 | LEN(1) | 0x80 | FLAG(4) | COMMAND(n) | SERIAL(2) | CRC(2) | 0D 0A
+//
+// LEN = jumlah byte dari: protocol(1) + flag(4) + command(n) + serial(2)
+// CRC = dihitung dari: protocol(0x80) + flag(4) + command + serial(2)
+// ============================================================
 function createCommandPacket(command) {
     const cmdBuffer = Buffer.from(command, 'ascii');
     const serialNum = getNextSerial();
-    const serverFlag = Buffer.from([0x00, 0x00, 0x00, 0x00]);
     const serialBuf = Buffer.from([(serialNum >> 8) & 0xFF, serialNum & 0xFF]);
+    const serverFlag = Buffer.from([0x00, 0x00, 0x00, 0x00]);
 
-    // Content = protocolId(1) + serverFlag(4) + cmd + serial(2)
-    const content = Buffer.concat([
-        Buffer.from([0x80]),  // Protocol ID
+    // Bagian setelah header (untuk CRC dan length)
+    // = protocol(0x80) + flag(4) + cmd + serial(2)
+    const body = Buffer.concat([
+        Buffer.from([0x80]),
         serverFlag,
         cmdBuffer,
         serialBuf
     ]);
 
-    const length = content.length;
-    const crcVal = getCRC(content);
+    // LEN = body.length (protocol + flag + cmd + serial)
+    const msgLen = body.length;
 
+    // CRC dihitung dari seluruh body
+    const crcVal = getCRC(body);
+
+    // Packet final
     const packet = Buffer.concat([
-        Buffer.from([0x79, 0x79]),                              // Extended Start
-        Buffer.from([(length >> 8) & 0xFF, length & 0xFF]),     // 2-byte length
-        content,                                                 // Protocol + body
+        Buffer.from([0x78, 0x78]),                              // Start (standard)
+        Buffer.from([msgLen]),                                   // 1-byte length
+        body,                                                    // Protocol + Flag + Command + Serial
         Buffer.from([(crcVal >> 8) & 0xFF, crcVal & 0xFF]),     // CRC
-        Buffer.from([0x0D, 0x0A])                               // Stop bits
+        Buffer.from([0x0D, 0x0A])                               // Stop
     ]);
 
+    console.log(`[DEBUG] CMD="${command}" serial=${serialNum} hex=${packet.toString('hex')}`);
     return packet;
 }
 
-// ✅ Helper: Build login ACK response packet (7878)
-function buildStandardAck(packetId, serial0, serial1) {
-    const body = Buffer.from([0x05, packetId, serial0, serial1]);
-    const crcVal = getCRC(body);
+// Build ACK packet standard (7878)
+function buildStandardAck(packetIdByte, serial0, serial1) {
+    // Format: 78 78 05 [protoId] [serial_hi] [serial_lo] [crc_hi] [crc_lo] 0D 0A
+    const forCRC = Buffer.from([0x05, packetIdByte, serial0, serial1]);
+    const crcVal = getCRC(forCRC);
     return Buffer.concat([
         Buffer.from([0x78, 0x78]),
-        body,
+        forCRC,
         Buffer.from([(crcVal >> 8) & 0xFF, crcVal & 0xFF, 0x0D, 0x0A])
     ]);
 }
 
-// ✅ Helper: Clear pending relay confirmation dengan timeout
+// Bersihkan pending relay
 function clearPendingRelay(imei) {
     if (pendingRelayConfirmations[imei]) {
         clearTimeout(pendingRelayConfirmations[imei].timer);
@@ -104,186 +118,54 @@ function clearPendingRelay(imei) {
 // ============================================================
 const gpsServer = net.createServer((socket) => {
     let currentImei = null;
+    let tcpBuffer = Buffer.alloc(0); // Buffer untuk handle TCP fragmentation
 
-    socket.on('data', (data) => {
+    socket.on('data', (chunk) => {
         try {
-            const hex = data.toString('hex').toLowerCase();
-            const isStandard = hex.startsWith('7878');
-            const isExtended = hex.startsWith('7979');
-            if (!isStandard && !isExtended) return;
+            tcpBuffer = Buffer.concat([tcpBuffer, chunk]);
 
-            const packetId = isStandard ? hex.substring(6, 8) : hex.substring(8, 10);
+            // Proses semua packet lengkap dalam buffer
+            while (tcpBuffer.length >= 4) {
+                let totalLen = 0;
 
-            // ─────────────────────────────────────────────
-            // 1. LOGIN PACKET (0x01)
-            // ─────────────────────────────────────────────
-            if (isStandard && packetId === '01') {
-                const rawImei = hex.substring(8, 24);
-                currentImei = rawImei.startsWith('0') ? rawImei.substring(1) : rawImei;
-                activeGpsSockets[currentImei] = socket;
+                if (tcpBuffer[0] === 0x78 && tcpBuffer[1] === 0x78) {
+                    // Standard packet: 78 78 | LEN(1) | ... | CRC(2) | 0D 0A
+                    const msgLen = tcpBuffer[2];
+                    totalLen = msgLen + 7; // start(2) + len(1) + msgLen + crc(2) + stop(2)
+                    if (tcpBuffer.length < totalLen) break;
 
-                // ACK login
-                const serial0 = data[data.length - 6];
-                const serial1 = data[data.length - 5];
-                const resp = buildStandardAck(0x01, serial0, serial1);
-                socket.write(resp);
+                } else if (tcpBuffer[0] === 0x79 && tcpBuffer[1] === 0x79) {
+                    // Extended packet: 79 79 | LEN(2) | ... | CRC(2) | 0D 0A
+                    if (tcpBuffer.length < 4) break;
+                    const msgLen = tcpBuffer.readUInt16BE(2);
+                    totalLen = msgLen + 8; // start(2) + len(2) + msgLen + crc(2) + stop(2)
+                    if (tcpBuffer.length < totalLen) break;
 
-                if (lastPayloads[currentImei]) {
-                    lastPayloads[currentImei].online = true;
-                    io.emit('vessel_move', lastPayloads[currentImei]);
-                }
-                console.log(`[${new Date().toLocaleTimeString()}] 🟢 Login: ${currentImei}`);
-            }
-
-            // ─────────────────────────────────────────────
-            // 2. HEARTBEAT / STATUS (0x13, 0x26, 0x94)
-            // ─────────────────────────────────────────────
-            else if (packetId === '13' || packetId === '26' || packetId === '94') {
-
-                // ACK untuk heartbeat standard
-                if (isStandard && (packetId === '13' || packetId === '26')) {
-                    const serial0 = data[data.length - 6];
-                    const serial1 = data[data.length - 5];
-                    const protoId = parseInt(packetId, 16);
-                    const body = Buffer.from([0x05, protoId, serial0, serial1]);
-                    const crcVal = getCRC(body);
-                    socket.write(Buffer.concat([
-                        Buffer.from([0x78, 0x78]),
-                        body,
-                        Buffer.from([(crcVal >> 8) & 0xFF, crcVal & 0xFF, 0x0D, 0x0A])
-                    ]));
-                }
-
-                let infoByte;
-                if (packetId === '13' || packetId === '26') {
-                    infoByte = data[4];
                 } else {
-                    // 0x94 extended status — offset 31
-                    infoByte = data.length > 31 ? data[31] : 0;
+                    // Bukan packet valid, buang byte dan coba lagi
+                    console.log(`[WARN] Invalid byte 0x${tcpBuffer[0].toString(16)} — discarding`);
+                    tcpBuffer = tcpBuffer.slice(1);
+                    continue;
                 }
 
-                const isAccOn = (infoByte & 0x02) !== 0;
-                const isRelayCut = (infoByte & 0x80) !== 0;
-
-                const newAcc = isAccOn ? "ON" : "OFF";
-                const newRelay = isRelayCut ? "OFF" : "ON";
-
-                if (currentImei) {
-                    lastAccStatus[currentImei] = newAcc;
-                    lastRelayStatus[currentImei] = newRelay;
-
-                    // ✅ Cek pending relay confirmation
-                    const pending = pendingRelayConfirmations[currentImei];
-                    if (pending && pending.targetStatus === newRelay) {
-                        io.to(pending.wsId).emit('command_confirmed', {
-                            imei: currentImei,
-                            relay: newRelay,
-                            msg: `Mesin Berhasil Diubah Jadi ${newRelay}`
-                        });
-                        clearPendingRelay(currentImei);
-                    }
-
-                    if (lastPayloads[currentImei]) {
-                        Object.assign(lastPayloads[currentImei], {
-                            acc: newAcc,
-                            relay: newRelay,
-                            online: true,
-                            time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })
-                        });
-                        io.emit('vessel_move', lastPayloads[currentImei]);
-                    }
-                    console.log(`[${new Date().toLocaleTimeString()}] ⚡ STATUS: ${currentImei} | ACC: ${newAcc} | Mesin: ${newRelay}`);
-                }
+                const packetData = tcpBuffer.slice(0, totalLen);
+                tcpBuffer = tcpBuffer.slice(totalLen);
+                processPacket(socket, packetData);
             }
-
-            // ─────────────────────────────────────────────
-            // 3. LOCATION PACKET (0x12, 0x22)
-            // ─────────────────────────────────────────────
-            else if (packetId === '12' || packetId === '22') {
-                try {
-                    // Pastikan data cukup panjang sebelum baca
-                    if (data.length < 22) return;
-
-                    const latRaw = data.readUInt32BE(11);
-                    const lonRaw = data.readUInt32BE(15);
-                    const speed = data[19];
-                    const courseInfo = data.readUInt16BE(20);
-
-                    let lat = latRaw / 1800000;
-                    let lon = lonRaw / 1800000;
-
-                    const isSouth = (courseInfo & 0x1000) !== 0;
-                    const isWest = (courseInfo & 0x2000) !== 0;
-                    const isAccOn = (courseInfo & 0x0400) !== 0;
-
-                    if (isSouth && lat > 0) lat = -lat;
-                    if (isWest && lon > 0) lon = -lon;
-                    // Koreksi koordinat untuk Indonesia (selatan equator)
-                    if (lat > 0 && lat < 15) lat = -lat;
-
-                    const currentAcc = isAccOn ? "ON" : "OFF";
-                    if (currentImei) lastAccStatus[currentImei] = currentAcc;
-
-                    const payload = {
-                        imei: currentImei || "unknown",
-                        nopol: "T FAZRIAN ABC",
-                        lat: parseFloat(lat.toFixed(6)),
-                        lon: parseFloat(lon.toFixed(6)),
-                        speed: speed,
-                        acc: (currentImei && lastAccStatus[currentImei]) || currentAcc,
-                        relay: (currentImei && lastRelayStatus[currentImei]) || "ON",
-                        sat: data[10] || 10,
-                        online: true,
-                        time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
-                        alarm: (lastPayloads[currentImei] && lastPayloads[currentImei].alarm) || "Normal"
-                    };
-
-                    if (Math.abs(payload.lat) < 90 && Math.abs(payload.lon) < 180) {
-                        if (currentImei) lastPayloads[payload.imei] = payload;
-                        io.emit('vessel_move', payload);
-                    }
-
-                    console.log(`[${new Date().toLocaleTimeString()}] 📍 LOC: ${currentImei} | lat:${payload.lat} lon:${payload.lon} spd:${speed}`);
-                } catch (e) {
-                    console.error(`[Location Parse Error] ${e.message}`);
-                }
-            }
-
-            // ─────────────────────────────────────────────
-            // 4. COMMAND RESPONSE (0x15)
-            // ─────────────────────────────────────────────
-            else if (packetId === '15') {
-                console.log(`[${new Date().toLocaleTimeString()}] 📥 Hardware Response: ${hex}`);
-
-                // ✅ Parse response text dari alat (jika ada)
-                // Format: 7979 | len(2) | 0x15 | serverFlag(4) | response_text | serial(2) | CRC | 0D0A
-                try {
-                    if (isExtended && data.length > 9) {
-                        const responseText = data.slice(7, data.length - 6).toString('ascii').trim();
-                        console.log(`[${new Date().toLocaleTimeString()}] 📨 Response Text: ${responseText}`);
-                        if (currentImei) {
-                            io.emit('device_response', { imei: currentImei, text: responseText });
-                        }
-                    }
-                } catch (e) { /* abaikan parse error response */ }
-            }
-
         } catch (e) {
             console.error(`[Socket Data Error] ${e.message}`);
+            tcpBuffer = Buffer.alloc(0);
         }
     });
 
     socket.on('error', (err) => {
-        if (currentImei) {
-            console.log(`[${new Date().toLocaleTimeString()}] ⚠️ Socket Error (${currentImei}): ${err.message}`);
-        }
-        // Jangan crash, biarkan socket close secara natural
+        console.log(`[${new Date().toLocaleTimeString()}] ⚠️ Socket Error (${currentImei || 'unknown'}): ${err.message}`);
     });
 
     socket.on('close', () => {
         if (currentImei) {
             delete activeGpsSockets[currentImei];
-            clearPendingRelay(currentImei); // ✅ Bersihkan pending confirmation
+            clearPendingRelay(currentImei);
             if (lastPayloads[currentImei]) {
                 lastPayloads[currentImei].online = false;
                 io.emit('vessel_move', lastPayloads[currentImei]);
@@ -291,27 +173,213 @@ const gpsServer = net.createServer((socket) => {
             console.log(`[${new Date().toLocaleTimeString()}] 🔴 Disconnect: ${currentImei}`);
         }
     });
+
+    // Proses satu packet lengkap
+    function processPacket(socket, data) {
+        const hex = data.toString('hex').toLowerCase();
+        const isStandard = hex.startsWith('7878');
+        const isExtended = hex.startsWith('7979');
+        const packetId = isStandard ? hex.substring(6, 8) : hex.substring(8, 10);
+
+        console.log(`[${new Date().toLocaleTimeString()}] 📦 [${packetId}] ${isExtended ? 'EXT' : 'STD'} len=${data.length} | ${hex.substring(0, 50)}`);
+
+        // ─── 1. LOGIN (0x01) ───────────────────────────────
+        if (isStandard && packetId === '01') {
+            const rawImei = hex.substring(8, 24);
+            currentImei = rawImei.startsWith('0') ? rawImei.substring(1) : rawImei;
+            activeGpsSockets[currentImei] = socket;
+
+            const serial0 = data[data.length - 6];
+            const serial1 = data[data.length - 5];
+            socket.write(buildStandardAck(0x01, serial0, serial1));
+
+            if (lastPayloads[currentImei]) {
+                lastPayloads[currentImei].online = true;
+                io.emit('vessel_move', lastPayloads[currentImei]);
+            }
+            console.log(`[${new Date().toLocaleTimeString()}] 🟢 Login: ${currentImei}`);
+        }
+
+        // ─── 2. HEARTBEAT / STATUS (0x13, 0x26, 0x94) ─────
+        else if (packetId === '13' || packetId === '26' || packetId === '94') {
+            if (isStandard) {
+                const serial0 = data[data.length - 6];
+                const serial1 = data[data.length - 5];
+                const protoIdByte = parseInt(packetId, 16);
+                socket.write(buildStandardAck(protoIdByte, serial0, serial1));
+            }
+
+            let infoByte = 0;
+            if (packetId === '13' || packetId === '26') {
+                infoByte = data.length > 4 ? data[4] : 0;
+            } else if (packetId === '94') {
+                infoByte = data.length > 31 ? data[31] : 0;
+            }
+
+            const isAccOn = (infoByte & 0x02) !== 0;
+            const isRelayCut = (infoByte & 0x80) !== 0;
+            const newAcc = isAccOn ? "ON" : "OFF";
+            const newRelay = isRelayCut ? "OFF" : "ON";
+
+            if (currentImei) {
+                lastAccStatus[currentImei] = newAcc;
+                lastRelayStatus[currentImei] = newRelay;
+
+                // Cek pending relay confirmation dari status heartbeat
+                const pending = pendingRelayConfirmations[currentImei];
+                if (pending && pending.targetStatus === newRelay) {
+                    io.to(pending.wsId).emit('command_confirmed', {
+                        imei: currentImei,
+                        relay: newRelay,
+                        msg: `Mesin Berhasil Diubah Jadi ${newRelay}`
+                    });
+                    clearPendingRelay(currentImei);
+                    console.log(`[${new Date().toLocaleTimeString()}] ✅ Relay confirmed via heartbeat: ${currentImei} → ${newRelay}`);
+                }
+
+                if (lastPayloads[currentImei]) {
+                    Object.assign(lastPayloads[currentImei], {
+                        acc: newAcc, relay: newRelay, online: true,
+                        time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })
+                    });
+                    io.emit('vessel_move', lastPayloads[currentImei]);
+                }
+
+                console.log(`[${new Date().toLocaleTimeString()}] ⚡ STATUS: ${currentImei} | ACC: ${newAcc} | Mesin: ${newRelay} | infoByte: 0x${infoByte.toString(16).padStart(2, '0')}`);
+            }
+        }
+
+        // ─── 3. LOCATION (0x12, 0x22) ─────────────────────
+        else if (packetId === '12' || packetId === '22') {
+            try {
+                if (data.length < 22) {
+                    console.log(`[WARN] Location packet pendek: ${data.length} bytes`);
+                    return;
+                }
+
+                const latRaw = data.readUInt32BE(11);
+                const lonRaw = data.readUInt32BE(15);
+                const speed = data[19];
+                const courseInfo = data.readUInt16BE(20);
+
+                let lat = latRaw / 1800000;
+                let lon = lonRaw / 1800000;
+
+                const isSouth = (courseInfo & 0x1000) !== 0;
+                const isWest = (courseInfo & 0x2000) !== 0;
+                const isAccOn = (courseInfo & 0x0400) !== 0;
+
+                if (isSouth && lat > 0) lat = -lat;
+                if (isWest && lon > 0) lon = -lon;
+                if (lat > 0 && lat < 15) lat = -lat; // Koreksi Indonesia
+
+                const currentAcc = isAccOn ? "ON" : "OFF";
+                if (currentImei) lastAccStatus[currentImei] = currentAcc;
+
+                const payload = {
+                    imei: currentImei || "unknown",
+                    nopol: "T FAZRIAN ABC",
+                    lat: parseFloat(lat.toFixed(6)),
+                    lon: parseFloat(lon.toFixed(6)),
+                    speed: speed,
+                    acc: (currentImei && lastAccStatus[currentImei]) || currentAcc,
+                    relay: (currentImei && lastRelayStatus[currentImei]) || "ON",
+                    sat: data[10] || 10,
+                    online: true,
+                    time: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }),
+                    alarm: (currentImei && lastPayloads[currentImei] && lastPayloads[currentImei].alarm) || "Normal"
+                };
+
+                if (Math.abs(payload.lat) < 90 && Math.abs(payload.lon) < 180) {
+                    if (currentImei) lastPayloads[payload.imei] = payload;
+                    io.emit('vessel_move', payload);
+                }
+
+                console.log(`[${new Date().toLocaleTimeString()}] 📍 LOC: ${currentImei} | lat:${payload.lat} lon:${payload.lon} spd:${speed}`);
+            } catch (e) {
+                console.error(`[Location Parse Error] ${e.message}`);
+            }
+        }
+
+        // ─── 4. COMMAND RESPONSE dari alat (0x15) ─────────
+        else if (packetId === '15') {
+            console.log(`[${new Date().toLocaleTimeString()}] 📥 CMD Response RAW: ${hex}`);
+
+            try {
+                let responseText = '';
+
+                if (isStandard) {
+                    // 78 78 | LEN(1) | 0x15 | FLAG(4) | TEXT | SERIAL(2) | CRC(2) | 0D0A
+                    // Offset text: 2(start) + 1(len) + 1(proto) + 4(flag) = offset 8
+                    if (data.length > 12) {
+                        responseText = data.slice(8, data.length - 6).toString('ascii').trim();
+                    }
+                } else {
+                    // 79 79 | LEN(2) | 0x15 | FLAG(4) | TEXT | SERIAL(2) | CRC(2) | 0D0A
+                    // Offset text: 2(start) + 2(len) + 1(proto) + 4(flag) = offset 9
+                    if (data.length > 13) {
+                        responseText = data.slice(9, data.length - 6).toString('ascii').trim();
+                    }
+                }
+
+                if (responseText) {
+                    console.log(`[${new Date().toLocaleTimeString()}] 📨 Response Text: "${responseText}"`);
+                    if (currentImei) {
+                        io.emit('device_response', { imei: currentImei, text: responseText });
+
+                        // Konfirmasi relay dari response text alat
+                        if (responseText.toUpperCase().includes('RELAY')) {
+                            const pending = pendingRelayConfirmations[currentImei];
+                            if (pending) {
+                                const isOff = responseText.includes(',1#') || responseText.toUpperCase().includes('RELAY OFF');
+                                const confirmedRelay = isOff ? 'OFF' : 'ON';
+                                io.to(pending.wsId).emit('command_confirmed', {
+                                    imei: currentImei,
+                                    relay: confirmedRelay,
+                                    msg: `Mesin Berhasil Diubah Jadi ${confirmedRelay}`
+                                });
+                                clearPendingRelay(currentImei);
+                                console.log(`[${new Date().toLocaleTimeString()}] ✅ Relay confirmed via 0x15: ${currentImei} → ${confirmedRelay}`);
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error(`[Response Parse Error] ${e.message}`);
+            }
+        }
+
+        // ─── 5. ALARM (0x16, 0x19, 0x98, 0x2C) ───────────
+        else if (['16', '19', '98', '2c'].includes(packetId)) {
+            if (isStandard) {
+                const serial0 = data[data.length - 6];
+                const serial1 = data[data.length - 5];
+                socket.write(buildStandardAck(parseInt(packetId, 16), serial0, serial1));
+            }
+            console.log(`[${new Date().toLocaleTimeString()}] 🚨 ALARM [${packetId}]: ${hex}`);
+        }
+
+        // ─── Unknown packet ────────────────────────────────
+        else {
+            console.log(`[${new Date().toLocaleTimeString()}] ❓ Unknown [${packetId}]: ${hex}`);
+        }
+    }
 });
 
 // ============================================================
 // WEBSOCKET — CLIENT COMMANDS
 // ============================================================
 io.on('connection', (ws) => {
-    console.log(`[${new Date().toLocaleTimeString()}] 🌐 Client WS Connected: ${ws.id}`);
-
-    // Kirim semua data terakhir ke client yang baru connect
+    console.log(`[${new Date().toLocaleTimeString()}] 🌐 Client Connected: ${ws.id}`);
     Object.values(lastPayloads).forEach(p => ws.emit('vessel_move', p));
 
     ws.on('send_command', (d) => {
-        // Validasi input
         if (!d || !d.imei || !d.command) {
             ws.emit('command_res', { status: 'error', msg: 'Data perintah tidak valid' });
             return;
         }
 
         const s = activeGpsSockets[d.imei];
-
-        // ✅ Cek socket masih hidup dan tidak destroyed
         if (!s || s.destroyed) {
             ws.emit('command_res', { status: 'error', msg: 'Device Offline' });
             return;
@@ -327,46 +395,38 @@ io.on('connection', (ws) => {
                     return;
                 }
 
-                console.log(`[${new Date().toLocaleTimeString()}] 🔌 Sent [${d.command}] to ${d.imei}`);
+                console.log(`[${new Date().toLocaleTimeString()}] 🔌 Sent [${d.command}] → ${d.imei}`);
                 ws.emit('command_res', { status: 'success', msg: 'Perintah terkirim, menunggu respon alat...' });
 
-                // ✅ Setup pending relay confirmation dengan TIMEOUT
+                // Setup relay confirmation timeout
                 if (d.command.toUpperCase().includes('RELAY')) {
-                    // RELAY,1# = cut engine (OFF), RELAY,0# = restore (ON)
                     const targetStatus = d.command.includes(',1#') ? 'OFF' : 'ON';
-
-                    // Hapus pending lama jika ada
                     clearPendingRelay(d.imei);
 
-                    // Set timeout 20 detik — jika alat tidak respons
                     const timer = setTimeout(() => {
                         if (pendingRelayConfirmations[d.imei]) {
+                            const wsId = pendingRelayConfirmations[d.imei].wsId;
                             delete pendingRelayConfirmations[d.imei];
-                            ws.emit('command_timeout', {
+                            io.to(wsId).emit('command_timeout', {
                                 imei: d.imei,
-                                msg: 'Alat tidak merespons dalam 20 detik. Coba lagi.'
+                                msg: 'Alat tidak merespons dalam 30 detik. Periksa sinyal dan coba lagi.'
                             });
                             console.log(`[${new Date().toLocaleTimeString()}] ⏰ Relay timeout: ${d.imei}`);
                         }
-                    }, 20000);
+                    }, 30000);
 
-                    pendingRelayConfirmations[d.imei] = {
-                        wsId: ws.id,
-                        targetStatus,
-                        timer
-                    };
+                    pendingRelayConfirmations[d.imei] = { wsId: ws.id, targetStatus, timer };
                 }
             });
 
         } catch (e) {
             console.error(`[Command Error] ${e.message}`);
-            ws.emit('command_res', { status: 'error', msg: 'Error saat membuat packet perintah' });
+            ws.emit('command_res', { status: 'error', msg: 'Error saat membuat packet' });
         }
     });
 
     ws.on('disconnect', () => {
-        console.log(`[${new Date().toLocaleTimeString()}] 🌐 Client WS Disconnected: ${ws.id}`);
-        // Bersihkan pending relay milik ws ini agar tidak menggantung
+        console.log(`[${new Date().toLocaleTimeString()}] 🌐 Client Disconnected: ${ws.id}`);
         Object.keys(pendingRelayConfirmations).forEach(imei => {
             if (pendingRelayConfirmations[imei].wsId === ws.id) {
                 clearPendingRelay(imei);
@@ -387,15 +447,13 @@ webServer.listen(WEB_PORT, '0.0.0.0', () => {
 });
 
 // ============================================================
-// ✅ GLOBAL ERROR HANDLER — Cegah server crash
+// GLOBAL ERROR HANDLER
 // ============================================================
 process.on('uncaughtException', (err) => {
     console.error(`[UNCAUGHT EXCEPTION] ${err.message}`);
     console.error(err.stack);
-    // Server tetap jalan, tidak crash
 });
 
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason) => {
     console.error(`[UNHANDLED REJECTION]`, reason);
-    // Server tetap jalan, tidak crash
 });

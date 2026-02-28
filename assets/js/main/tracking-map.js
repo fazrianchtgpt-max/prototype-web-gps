@@ -9,23 +9,25 @@ window.initMap = function () {
     // 1. Initialize Map
     map = new google.maps.Map(document.getElementById('map'), {
         center: { lat: -0.7893, lng: 113.9213 },
-        zoom: 5
+        zoom: 5,
+        mapId: 'DEMO_MAP_ID' // Wajib untuk AdvancedMarkerElement
     });
 
     // 2. Define Custom Icons
     function createRotatedIcon(iconUrl) {
-        return {
-            url: iconUrl,
-            scaledSize: new google.maps.Size(36, 36),
-            anchor: new google.maps.Point(18, 18)
-        };
+        const img = document.createElement('img');
+        img.src = iconUrl;
+        img.style.width = '36px';
+        img.style.height = '36px';
+        img.style.transform = 'translate(0, 18px)'; // Correctly anchor in the center instead of bottom
+        return img;
     }
 
     window.focusVehicleId = function (id) {
         if (markers[id]) {
             const marker = markers[id];
             map.setZoom(16);
-            map.panTo(marker.getPosition());
+            map.panTo(marker.position);
             if (activeInfoWindow) activeInfoWindow.close();
             markers[id].infoWindow.open(map, marker);
             activeInfoWindow = markers[id].infoWindow;
@@ -223,15 +225,16 @@ window.initMap = function () {
 
             // Update Map
             if (!markers[vehicleId]) {
-                const marker = new google.maps.Marker({
+                const marker = new google.maps.marker.AdvancedMarkerElement({
                     position: newLatLng,
                     map: map,
-                    icon: customIcon
+                    content: customIcon,
+                    gmpClickable: true
                 });
                 const infoWindow = new google.maps.InfoWindow({
                     content: generatePopupHTML(vData)
                 });
-                marker.addListener('click', () => {
+                marker.addListener('gmp-click', () => {
                     if (activeInfoWindow) activeInfoWindow.close();
                     infoWindow.open(map, marker);
                     activeInfoWindow = infoWindow;
@@ -245,8 +248,8 @@ window.initMap = function () {
                 }
             } else {
                 const marker = markers[vehicleId];
-                marker.setPosition(newLatLng);
-                marker.setIcon(customIcon);
+                marker.position = newLatLng;
+                marker.content = customIcon;
                 marker.infoWindow.setContent(generatePopupHTML(vData));
             }
 

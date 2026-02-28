@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Maps Example</title>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAfzUfT-jPQq4ttfL2JjKH7LchTrIFsnGM&callback=initMap" async defer></script>
+    <style>
+        #map {
+            height: 400px;
+            width: 100%;
+        }
+    </style>
+    <script>
+        function initMap() {
+            // Inisialisasi peta
+            var map = new google.maps.Map(document.getElementById('map'), {
+                center: {lat: -7.797068, lng: 110.370529}, // Ganti dengan koordinat pusat peta yang diinginkan
+                zoom: 12 // Ganti dengan level zoom yang diinginkan
+            });
+
+            // Tambahkan marker atau fitur peta lainnya di sini (opsional)
+            // Contoh:
+            // var marker = new google.maps.Marker({
+            //     position: {lat: -7.797068, lng: 110.370529},
+            //     map: map,
+            //     title: 'Marker Title'
+            // });
+        }
+    </script>
+</head>
+<body>
+    <div id="map"></div>
+</body>
+</html>

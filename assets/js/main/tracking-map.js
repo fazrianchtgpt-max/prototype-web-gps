@@ -1,32 +1,34 @@
-document.addEventListener("DOMContentLoaded", function () {
+const markers = {};
+const vehiclesData = {};
+let activeInfoWindow = null;
+var map;
+var socket;
+var trackPolylines = {};
+
+window.initMap = function () {
     // 1. Initialize Map
-    const map = L.map('map').setView([-0.7893, 113.9213], 5);
+    map = new google.maps.Map(document.getElementById('map'), {
+        center: { lat: -0.7893, lng: 113.9213 },
+        zoom: 5
+    });
 
-    // 2. Add Tile Layer (OpenStreetMap)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 19,
-    }).addTo(map);
-
-    // 3. Define Custom Icons
-    function createRotatedIcon(iconUrl, heading) {
-        return L.divIcon({
-            className: 'custom-div-icon',
-            html: `<img src="${iconUrl}" style="width: 36px; height: 36px; transform: rotate(${heading}deg); transform-origin: center center; filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.3));">`,
-            iconSize: [36, 36],
-            iconAnchor: [18, 18],
-            popupAnchor: [0, -18]
-        });
+    // 2. Define Custom Icons
+    function createRotatedIcon(iconUrl) {
+        return {
+            url: iconUrl,
+            scaledSize: new google.maps.Size(36, 36),
+            anchor: new google.maps.Point(18, 18)
+        };
     }
-
-    const markers = {};
-    const vehiclesData = {};
 
     window.focusVehicleId = function (id) {
         if (markers[id]) {
             const marker = markers[id];
-            map.flyTo(marker.getLatLng(), 16, { animate: true, duration: 1.5 });
-            setTimeout(() => { marker.openPopup(); }, 500);
+            map.setZoom(16);
+            map.panTo(marker.getPosition());
+            if (activeInfoWindow) activeInfoWindow.close();
+            markers[id].infoWindow.open(map, marker);
+            activeInfoWindow = markers[id].infoWindow;
             document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
     };
@@ -131,15 +133,11 @@ document.addEventListener("DOMContentLoaded", function () {
     };
 
     // Socket.io Integration
-    var socket;
-    var trackPolylines = {};
-
     if (typeof io !== 'undefined') {
-        socket = io('https://kulocloud.biz.id'); // Use standard HTTPS (Cloudflare will proxy to port 80) // Port 8080 for Cloudflare Flexible SSL
+        socket = io('https://kulocloud.biz.id');
 
         socket.on('connect', () => {
             console.log('Connected to Server');
-            // Jika mobil belum muncul, refresh data dari cache
         });
 
         socket.on('connect_error', (err) => {
@@ -177,12 +175,19 @@ document.addEventListener("DOMContentLoaded", function () {
 
         socket.on('history_data', (history) => {
             for (const imei in history) {
-                const points = history[imei].map(p => [p.lat, p.lon]);
+                const points = history[imei].map(p => ({ lat: p.lat, lng: p.lon }));
                 if (points.length > 0) {
                     if (!trackPolylines[imei]) {
-                        trackPolylines[imei] = L.polyline(points, { color: '#22c55e', weight: 4, opacity: 0.8 }).addTo(map);
+                        trackPolylines[imei] = new google.maps.Polyline({
+                            path: points,
+                            geodesic: true,
+                            strokeColor: '#22c55e',
+                            strokeOpacity: 0.8,
+                            strokeWeight: 4,
+                            map: map
+                        });
                     } else {
-                        trackPolylines[imei].setLatLngs(points);
+                        trackPolylines[imei].setPath(points);
                     }
                 }
             }
@@ -191,13 +196,8 @@ document.addEventListener("DOMContentLoaded", function () {
         socket.on('vessel_move', (data) => {
             console.log('Update Realtime:', data);
             const vehicleId = data.imei;
-            const newLatLng = [data.lat, data.lon];
+            const newLatLng = { lat: data.lat, lng: data.lon };
 
-            // --- MAS ARI COLOR LOGIC ---
-            // 1. Grey = Offline (data.online === false)
-            // 2. Red = Mesin OFF (data.relay === 'OFF')
-            // 3. Yellow = Standby (Mesin ON, Speed === 0)
-            // 4. Green = Moving (Mesin ON, Speed > 0)
             let vtStatus = 'gray';
             if (data.online) {
                 if (data.relay === 'OFF') {
@@ -208,7 +208,7 @@ document.addEventListener("DOMContentLoaded", function () {
             }
 
             const iconUrl = `assets/icon-gps/car_${vtStatus}.svg`;
-            const customIcon = createRotatedIcon(iconUrl, 0);
+            const customIcon = createRotatedIcon(iconUrl);
 
             if (!vehiclesData[vehicleId]) {
                 vehiclesData[vehicleId] = { id: vehicleId, name: data.nopol || 'Unit GPS' };
@@ -223,22 +223,46 @@ document.addEventListener("DOMContentLoaded", function () {
 
             // Update Map
             if (!markers[vehicleId]) {
-                markers[vehicleId] = L.marker(newLatLng, { icon: customIcon })
-                    .addTo(map)
-                    .bindPopup(generatePopupHTML(vData), { maxWidth: 300, minWidth: 250 });
-                if (Object.keys(markers).length === 1) map.setView(newLatLng, 15);
+                const marker = new google.maps.Marker({
+                    position: newLatLng,
+                    map: map,
+                    icon: customIcon
+                });
+                const infoWindow = new google.maps.InfoWindow({
+                    content: generatePopupHTML(vData)
+                });
+                marker.addListener('click', () => {
+                    if (activeInfoWindow) activeInfoWindow.close();
+                    infoWindow.open(map, marker);
+                    activeInfoWindow = infoWindow;
+                });
+                marker.infoWindow = infoWindow;
+                markers[vehicleId] = marker;
+
+                if (Object.keys(markers).length === 1) {
+                    map.setCenter(newLatLng);
+                    map.setZoom(15);
+                }
             } else {
                 const marker = markers[vehicleId];
-                marker.setLatLng(newLatLng);
+                marker.setPosition(newLatLng);
                 marker.setIcon(customIcon);
-                if (marker.isPopupOpen()) marker.setPopupContent(generatePopupHTML(vData));
+                marker.infoWindow.setContent(generatePopupHTML(vData));
             }
 
             // Update Track Polyline
             if (!trackPolylines[vehicleId]) {
-                trackPolylines[vehicleId] = L.polyline([newLatLng], { color: '#22c55e', weight: 4, opacity: 0.8 }).addTo(map);
+                trackPolylines[vehicleId] = new google.maps.Polyline({
+                    path: [newLatLng],
+                    geodesic: true,
+                    strokeColor: '#22c55e',
+                    strokeOpacity: 0.8,
+                    strokeWeight: 4,
+                    map: map
+                });
             } else {
-                trackPolylines[vehicleId].addLatLng(newLatLng);
+                const path = trackPolylines[vehicleId].getPath();
+                path.push(new google.maps.LatLng(newLatLng.lat, newLatLng.lng));
             }
 
             // Update Table
@@ -311,4 +335,4 @@ document.addEventListener("DOMContentLoaded", function () {
             </div>
         `;
     }
-});
+}
